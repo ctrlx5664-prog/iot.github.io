@@ -14,8 +14,17 @@ declare module "lucide-react" {
   export const Plus: Icon;
   export const Users: Icon;
   export const ChevronDown: Icon;
+  export const ChevronUp: Icon;
   export const Copy: Icon;
   export const Check: Icon;
   export const PanelLeftIcon: Icon;
+  export const Power: Icon;
+  export const Volume2: Icon;
+  export const VolumeX: Icon;
+  export const Play: Icon;
+  export const Pause: Icon;
+  export const SkipForward: Icon;
+  export const SkipBack: Icon;
+  export const Tv: Icon;
 }
 
