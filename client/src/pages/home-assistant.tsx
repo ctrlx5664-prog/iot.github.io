@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { apiUrl, getToken } from "@/lib/auth";
 
 type HaState = {
   entity_id: string;
@@ -18,7 +19,10 @@ export default function HomeAssistant() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/ha/states");
+      const token = getToken();
+      const res = await fetch(apiUrl("/api/ha/states"), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load states");
       setEntities(data);
@@ -44,9 +48,13 @@ export default function HomeAssistant() {
     setCalling(entity.entity_id);
     setError(null);
     try {
-      const res = await fetch(`/api/ha/services/${domain}/${service}`, {
+      const token = getToken();
+      const res = await fetch(apiUrl(`/api/ha/services/${domain}/${service}`), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ entity_id: entity.entity_id }),
       });
       const data = await res.json();

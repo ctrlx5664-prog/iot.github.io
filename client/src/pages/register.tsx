@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { setToken, clearToken } from "@/lib/auth";
+import { setToken, clearToken, apiUrl } from "@/lib/auth";
 
 export default function Register() {
   const [, navigate] = useLocation();
@@ -23,7 +23,7 @@ export default function Register() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch(apiUrl("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -92,4 +92,3 @@ export default function Register() {
     </div>
   );
 }
-

@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { setToken, clearToken } from "@/lib/auth";
+import { setToken, clearToken, apiUrl } from "@/lib/auth";
 
 export default function Login() {
   const [, navigate] = useLocation();
@@ -23,7 +23,7 @@ export default function Login() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
