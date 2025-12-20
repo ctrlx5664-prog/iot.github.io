@@ -1,4 +1,5 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { getToken, clearToken } from "./auth";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -20,6 +21,11 @@ function withApiBase(url: string) {
   return `${base}${url}`;
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function getCredentials(): RequestCredentials {
   // For separate domains, cookies are usually not needed. Default to omit.
   const mode = (import.meta.env.VITE_API_CREDENTIALS as string | undefined) ?? "omit";
@@ -31,9 +37,14 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: Record<string, string> = { ...authHeaders() };
+  if (data) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const res = await fetch(withApiBase(url), {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: getCredentials(),
   });
@@ -45,15 +56,17 @@ export async function apiRequest(
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
+}) => (ctx: { queryKey: any[] }) => Promise<T | null> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const url = withApiBase(queryKey.join("/") as string);
     const res = await fetch(url, {
+      headers: authHeaders(),
       credentials: getCredentials(),
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      clearToken();
       return null;
     }
 

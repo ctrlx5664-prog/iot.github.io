@@ -13,6 +13,8 @@ import Companies from "@/pages/companies";
 import LocationDetail from "@/pages/location-detail";
 import Videos from "@/pages/videos";
 import NotFound from "@/pages/not-found";
+import Login from "@/pages/login";
+import HomeAssistant from "@/pages/home-assistant";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -27,6 +29,8 @@ function Routes() {
       <Route path="/companies" component={Companies} />
       <Route path="/location/:id" component={LocationDetail} />
       <Route path="/videos" component={Videos} />
+      <Route path="/login" component={Login} />
+      <Route path="/ha" component={HomeAssistant} />
       <Route path="*" component={NotFound} />
     </Switch>
   );

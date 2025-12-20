@@ -12,6 +12,7 @@ import {
   type Tv,
 } from "@shared/schema";
 import { ZodError } from "zod";
+import crypto from "crypto";
 
 export type BroadcastDeviceUpdate = (
   type: "light_update" | "tv_update",
@@ -26,6 +27,147 @@ export async function registerRoutes(
   opts?: { broadcastDeviceUpdate?: BroadcastDeviceUpdate },
 ): Promise<void> {
   const broadcastDeviceUpdate = opts?.broadcastDeviceUpdate ?? noopBroadcast;
+
+  // --- Auth helpers (JWT, simple credential check) ---
+  const jwtSecret = process.env.JWT_SECRET ?? "please-change-me";
+  const authUsername = process.env.AUTH_USERNAME ?? "admin";
+  const authPassword = process.env.AUTH_PASSWORD ?? "changeme";
+
+  function base64url(input: any) {
+    return input
+      .toString("base64")
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  }
+
+  function signJwt(payload: Record<string, any>, expiresInSeconds = 60 * 60 * 24) {
+    const header = { alg: "HS256", typ: "JWT" };
+    const now = Math.floor(Date.now() / 1000);
+    const body = { ...payload, iat: now, exp: now + expiresInSeconds };
+    const headerB64 = base64url(Buffer.from(JSON.stringify(header)));
+    const payloadB64 = base64url(Buffer.from(JSON.stringify(body)));
+    const data = `${headerB64}.${payloadB64}`;
+    const signature = base64url(
+      crypto.createHmac("sha256", jwtSecret).update(data).digest(),
+    );
+    return `${data}.${signature}`;
+  }
+
+  function verifyJwt(token: string): Record<string, any> | null {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const [headerB64, payloadB64, signature] = parts;
+    const data = `${headerB64}.${payloadB64}`;
+    const expectedSig = base64url(
+      crypto.createHmac("sha256", jwtSecret).update(data).digest(),
+    );
+    if (expectedSig !== signature) return null;
+    try {
+      const payload = JSON.parse(Buffer.from(payloadB64, "base64").toString("utf8"));
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp && payload.exp < now) return null;
+      return payload;
+    } catch {
+      return null;
+    }
+  }
+
+  function getBearerToken(req: any) {
+    const authHeader = req.headers?.authorization ?? "";
+    const [scheme, token] = authHeader.split(" ");
+    if (scheme?.toLowerCase() !== "bearer" || !token) return null;
+    return token;
+  }
+
+  // --- Home Assistant proxy helpers ---
+  const haBaseUrl = (process.env.HA_BASE_URL ?? "").replace(/\/+$/, "");
+  const haToken = process.env.HA_TOKEN ?? "";
+
+  async function haRequest(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ status: number; json: any }> {
+    if (!haBaseUrl || !haToken) {
+      return { status: 500, json: { error: "HA_BASE_URL or HA_TOKEN not configured" } };
+    }
+    const url = `${haBaseUrl}${path}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${haToken}`,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let json: any = text;
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch {
+      json = { message: text };
+    }
+    return { status: res.status, json };
+  }
+
+  // --- Auth routes ---
+  app.post("/api/auth/login", async (req, res) => {
+    const { username, password } = req.body || {};
+    if (username !== authUsername || password !== authPassword) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    const token = signJwt({ sub: username });
+    res.json({ token, user: { username } });
+  });
+
+  app.get("/api/auth/me", async (req, res) => {
+    const token = getBearerToken(req);
+    if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const payload = verifyJwt(token);
+    if (!payload) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    res.json({ user: { username: payload.sub } });
+  });
+
+  // Protect all other /api routes
+  app.use("/api", (req: any, res: any, next: any) => {
+    if (req.path.startsWith("/auth")) {
+      return next();
+    }
+    const token = getBearerToken(req);
+    const payload = token ? verifyJwt(token) : null;
+    if (!payload) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    (req as any).user = payload;
+    next();
+  });
+
+  // --- Home Assistant proxy routes ---
+  app.get("/api/ha/states", async (_req, res) => {
+    const result = await haRequest("GET", "/api/states");
+    return res.status(result.status).json(result.json);
+  });
+
+  app.get("/api/ha/states/:entityId", async (req, res) => {
+    const { entityId } = req.params;
+    const result = await haRequest("GET", `/api/states/${encodeURIComponent(entityId)}`);
+    return res.status(result.status).json(result.json);
+  });
+
+  app.post("/api/ha/services/:domain/:service", async (req, res) => {
+    const { domain, service } = req.params;
+    const result = await haRequest(
+      "POST",
+      `/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`,
+      req.body ?? {},
+    );
+    return res.status(result.status).json(result.json);
+  });
   // Companies
   app.get("/api/companies", async (_req, res) => {
     try {
@@ -53,7 +195,7 @@ export async function registerRoutes(
       const data = insertCompanySchema.parse(req.body);
       const company = await storage.createCompany(data);
       res.status(201).json(company);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ error: "Invalid company data", details: error.errors });
       }
@@ -107,7 +249,7 @@ export async function registerRoutes(
       
       const location = await storage.createLocation(data);
       res.status(201).json(location);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ error: "Invalid location data", details: error.errors });
       }
@@ -164,7 +306,7 @@ export async function registerRoutes(
       
       // Broadcast to WebSocket clients
       broadcastDeviceUpdate("light_update", light.id, light);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ error: "Invalid light data", details: error.errors });
       }
@@ -183,7 +325,7 @@ export async function registerRoutes(
       
       // Broadcast to WebSocket clients
       broadcastDeviceUpdate("light_update", light.id, light);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ error: "Invalid update data", details: error.errors });
       }
@@ -248,7 +390,7 @@ export async function registerRoutes(
       
       // Broadcast to WebSocket clients
       broadcastDeviceUpdate("tv_update", tv.id, tv);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ error: "Invalid TV data", details: error.errors });
       }
@@ -276,7 +418,7 @@ export async function registerRoutes(
       
       // Broadcast to WebSocket clients
       broadcastDeviceUpdate("tv_update", tv.id, tv);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ error: "Invalid update data", details: error.errors });
       }
@@ -323,7 +465,7 @@ export async function registerRoutes(
       const data = insertVideoSchema.parse(req.body);
       const video = await storage.createVideo(data);
       res.status(201).json(video);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ZodError) {
         return res.status(400).json({ error: "Invalid video data", details: error.errors });
       }

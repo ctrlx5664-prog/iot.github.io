@@ -14,5 +14,6 @@ declare module "wouter" {
   ): any;
 
   export function Router(props: { hook?: any; children?: ReactNode }): any;
+  export function useLocation(): [string, (to: string, options?: any) => void];
 }
 
