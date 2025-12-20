@@ -124,26 +124,61 @@ export async function registerRoutes(
     path: string,
     body?: unknown,
   ): Promise<{ status: number; json: any }> {
+    // Log configuration
+    console.log("[HA Proxy] Config check:", {
+      haBaseUrl: haBaseUrl || "(not set)",
+      haTokenSet: haToken ? `${haToken.substring(0, 10)}...` : "(not set)",
+      haTokenLength: haToken?.length || 0,
+    });
+
     if (!haBaseUrl || !haToken) {
+      console.error("[HA Proxy] ERROR: Missing configuration", {
+        haBaseUrl: !!haBaseUrl,
+        haToken: !!haToken,
+      });
       return { status: 500, json: { error: "HA_BASE_URL or HA_TOKEN not configured" } };
     }
+
     const url = `${haBaseUrl}${path}`;
-    const res = await fetch(url, {
+    console.log("[HA Proxy] Request:", {
       method,
-      headers: {
-        Authorization: `Bearer ${haToken}`,
-        "Content-Type": "application/json",
-      },
-      body: body ? JSON.stringify(body) : undefined,
+      url,
+      hasBody: !!body,
     });
-    const text = await res.text();
-    let json: any = text;
+
     try {
-      json = text ? JSON.parse(text) : {};
-    } catch {
-      json = { message: text };
+      const res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${haToken}`,
+          "Content-Type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      const text = await res.text();
+      let json: any = text;
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        json = { message: text };
+      }
+
+      console.log("[HA Proxy] Response:", {
+        status: res.status,
+        ok: res.ok,
+        responseLength: text.length,
+        jsonPreview: typeof json === "object" ? JSON.stringify(json).substring(0, 200) : json,
+      });
+
+      return { status: res.status, json };
+    } catch (err: any) {
+      console.error("[HA Proxy] Fetch error:", {
+        message: err?.message,
+        cause: err?.cause,
+      });
+      return { status: 500, json: { error: `HA request failed: ${err?.message}` } };
     }
-    return { status: res.status, json };
   }
 
   // --- Auth routes ---
@@ -403,23 +438,29 @@ export async function registerRoutes(
 
   // --- Home Assistant proxy routes ---
   app.get("/api/ha/states", async (_req, res) => {
+    console.log("[HA Route] GET /api/ha/states called");
     const result = await haRequest("GET", "/api/states");
+    console.log("[HA Route] GET /api/ha/states result:", result.status);
     return res.status(result.status).json(result.json);
   });
 
   app.get("/api/ha/states/:entityId", async (req, res) => {
     const { entityId } = req.params;
+    console.log("[HA Route] GET /api/ha/states/:entityId called", { entityId });
     const result = await haRequest("GET", `/api/states/${encodeURIComponent(entityId)}`);
+    console.log("[HA Route] GET /api/ha/states/:entityId result:", result.status);
     return res.status(result.status).json(result.json);
   });
 
   app.post("/api/ha/services/:domain/:service", async (req, res) => {
     const { domain, service } = req.params;
+    console.log("[HA Route] POST /api/ha/services called", { domain, service, body: req.body });
     const result = await haRequest(
       "POST",
       `/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`,
       req.body ?? {},
     );
+    console.log("[HA Route] POST /api/ha/services result:", result.status);
     return res.status(result.status).json(result.json);
   });
   // Companies
