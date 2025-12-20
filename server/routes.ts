@@ -8,14 +8,16 @@ import {
   insertTvSchema,
   updateTvSchema,
   insertVideoSchema,
+  insertOrganizationSchema,
+  createInviteSchema,
   type Light,
   type Tv,
 } from "@shared/schema";
 import { ZodError } from "zod";
 import crypto, { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { getDb } from "./db/client";
-import { users } from "./db/schema";
-import { eq } from "drizzle-orm";
+import { users, organizations, userOrganizations, organizationInvites } from "./db/schema";
+import { eq, and } from "drizzle-orm";
 
 export type BroadcastDeviceUpdate = (
   type: "light_update" | "tv_update",
@@ -195,6 +197,208 @@ export async function registerRoutes(
     }
     (req as any).user = payload;
     next();
+  });
+
+  // --- Organization routes ---
+  
+  // Get user's organizations
+  app.get("/api/organizations", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const memberships = await db.select().from(userOrganizations).where(eq(userOrganizations.userId, user.id));
+      const orgIds = memberships.map((m: any) => m.organizationId);
+      
+      if (orgIds.length === 0) return res.json([]);
+      
+      const orgs = await Promise.all(
+        orgIds.map(async (orgId: string) => {
+          const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
+          const membership = memberships.find((m: any) => m.organizationId === orgId);
+          return org ? { ...org, role: membership?.role } : null;
+        })
+      );
+      
+      res.json(orgs.filter(Boolean));
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch organizations" });
+    }
+  });
+
+  // Create organization
+  app.post("/api/organizations", async (req: any, res) => {
+    try {
+      const data = insertOrganizationSchema.parse(req.body);
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const [org] = await db.insert(organizations).values({
+        name: data.name,
+        description: data.description,
+      }).returning();
+      
+      // Add creator as owner
+      await db.insert(userOrganizations).values({
+        userId: user.id,
+        organizationId: org.id,
+        role: "owner",
+      });
+      
+      res.status(201).json({ ...org, role: "owner" });
+    } catch (error: any) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ error: "Invalid organization data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create organization" });
+    }
+  });
+
+  // Get single organization
+  app.get("/api/organizations/:id", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership) return res.status(403).json({ error: "Not a member of this organization" });
+      
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, req.params.id));
+      if (!org) return res.status(404).json({ error: "Organization not found" });
+      
+      res.json({ ...org, role: membership.role });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch organization" });
+    }
+  });
+
+  // Get organization members
+  app.get("/api/organizations/:id/members", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership) return res.status(403).json({ error: "Not a member of this organization" });
+      
+      const members = await db.select().from(userOrganizations).where(eq(userOrganizations.organizationId, req.params.id));
+      
+      const memberDetails = await Promise.all(
+        members.map(async (m: any) => {
+          const [u] = await db.select().from(users).where(eq(users.id, m.userId));
+          return { id: m.id, userId: m.userId, username: u?.username, role: m.role, invitedAt: m.invitedAt };
+        })
+      );
+      
+      res.json(memberDetails);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch members" });
+    }
+  });
+
+  // Create invite
+  app.post("/api/organizations/:id/invites", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+        return res.status(403).json({ error: "Only owners and admins can create invites" });
+      }
+      
+      const { role = "member", invitedEmail } = req.body || {};
+      const inviteCode = randomBytes(16).toString("hex");
+      
+      const [invite] = await db.insert(organizationInvites).values({
+        organizationId: req.params.id,
+        invitedByUserId: user.id,
+        invitedEmail: invitedEmail || null,
+        inviteCode,
+        role,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      }).returning();
+      
+      res.status(201).json(invite);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to create invite" });
+    }
+  });
+
+  // Get organization invites
+  app.get("/api/organizations/:id/invites", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+        return res.status(403).json({ error: "Only owners and admins can view invites" });
+      }
+      
+      const invites = await db.select().from(organizationInvites)
+        .where(eq(organizationInvites.organizationId, req.params.id));
+      
+      res.json(invites);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to fetch invites" });
+    }
+  });
+
+  // Accept invite (join organization)
+  app.post("/api/invites/:code/accept", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const [invite] = await db.select().from(organizationInvites)
+        .where(eq(organizationInvites.inviteCode, req.params.code));
+      
+      if (!invite) return res.status(404).json({ error: "Invite not found" });
+      if (invite.usedAt) return res.status(400).json({ error: "Invite already used" });
+      if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
+        return res.status(400).json({ error: "Invite expired" });
+      }
+      
+      // Check if already a member
+      const [existing] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, invite.organizationId)));
+      
+      if (existing) return res.status(400).json({ error: "Already a member" });
+      
+      // Add user to organization
+      await db.insert(userOrganizations).values({
+        userId: user.id,
+        organizationId: invite.organizationId,
+        role: invite.role,
+      });
+      
+      // Mark invite as used
+      await db.update(organizationInvites)
+        .set({ usedAt: new Date() })
+        .where(eq(organizationInvites.id, invite.id));
+      
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, invite.organizationId));
+      
+      res.json({ message: "Joined organization", organization: org });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to accept invite" });
+    }
   });
 
   // --- Home Assistant proxy routes ---

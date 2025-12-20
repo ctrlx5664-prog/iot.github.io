@@ -22,6 +22,8 @@ import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import HomeAssistant from "@/pages/home-assistant";
+import Organizations from "@/pages/organizations";
+import AcceptInvite from "@/pages/invite";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -40,6 +42,8 @@ function Routes() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/ha" component={HomeAssistant} />
+      <Route path="/organizations" component={Organizations} />
+      <Route path="/invite/:code" component={AcceptInvite} />
       <Route path="*" component={NotFound} />
     </Switch>
   );
@@ -50,7 +54,11 @@ export default function App() {
   const token = getToken();
 
   useEffect(() => {
-    if (!token && location !== "/login" && location !== "/register") {
+    const isPublicRoute =
+      location === "/login" ||
+      location === "/register" ||
+      location.startsWith("/invite/");
+    if (!token && !isPublicRoute) {
       navigate("/login");
     }
   }, [token, location, navigate]);
@@ -68,9 +76,12 @@ export default function App() {
     [routerMode]
   );
 
-  const isLogin = location === "/login";
+  const isAuthPage =
+    location === "/login" ||
+    location === "/register" ||
+    location.startsWith("/invite/");
 
-  const shell = isLogin ? (
+  const shell = isAuthPage ? (
     <div className="min-h-screen bg-background">
       <WouterRouter hook={routerHook}>
         <Routes />

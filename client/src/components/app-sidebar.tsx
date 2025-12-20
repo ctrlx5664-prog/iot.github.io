@@ -1,4 +1,4 @@
-import { Building2, Lightbulb, Monitor, Home, Plus } from "lucide-react";
+import { Building2, Lightbulb, Monitor, Home, Plus, Users } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -16,7 +16,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import type { Company, Location, Light, Tv } from "@shared/schema";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
@@ -24,29 +28,29 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   const { data: companies = [] } = useQuery<Company[]>({
-    queryKey: ['/api/companies'],
+    queryKey: ["/api/companies"],
   });
 
   const { data: locations = [] } = useQuery<Location[]>({
-    queryKey: ['/api/locations'],
+    queryKey: ["/api/locations"],
   });
 
   const { data: lights = [] } = useQuery<Light[]>({
-    queryKey: ['/api/lights'],
+    queryKey: ["/api/lights"],
   });
 
   const { data: tvs = [] } = useQuery<Tv[]>({
-    queryKey: ['/api/tvs'],
+    queryKey: ["/api/tvs"],
   });
 
   const getDeviceCountForLocation = (locationId: string) => {
-    const lightCount = lights.filter(l => l.locationId === locationId).length;
-    const tvCount = tvs.filter(t => t.locationId === locationId).length;
+    const lightCount = lights.filter((l) => l.locationId === locationId).length;
+    const tvCount = tvs.filter((t) => t.locationId === locationId).length;
     return lightCount + tvCount;
   };
 
   const getLocationsForCompany = (companyId: string) => {
-    return locations.filter(l => l.companyId === companyId);
+    return locations.filter((l) => l.companyId === companyId);
   };
 
   return (
@@ -57,7 +61,9 @@ export function AppSidebar() {
             <Lightbulb className="w-4 h-4 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-sidebar-foreground">IoT Manager</h2>
+            <h2 className="text-base font-semibold text-sidebar-foreground">
+              IoT Manager
+            </h2>
             <p className="text-xs text-muted-foreground">Device Control</p>
           </div>
         </div>
@@ -84,6 +90,17 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/organizations"}
+                >
+                  <Link href="/organizations" data-testid="link-organizations">
+                    <Users className="w-4 h-4" />
+                    <span>Organizations</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -91,12 +108,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <div className="flex items-center justify-between px-2">
             <SidebarGroupLabel>Locations</SidebarGroupLabel>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              asChild
-            >
+            <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
               <Link href="/companies" data-testid="button-add-company">
                 <Plus className="w-3 h-3" />
               </Link>
@@ -157,7 +169,11 @@ function CompanyLocationTree({
           <SidebarMenuButton data-testid={`button-company-${company.id}`}>
             <Building2 className="w-4 h-4" />
             <span className="flex-1 truncate">{company.name}</span>
-            <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-0' : '-rotate-90'}`} />
+            <ChevronDown
+              className={`w-3 h-3 transition-transform ${
+                isOpen ? "rotate-0" : "-rotate-90"
+              }`}
+            />
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -175,7 +191,9 @@ function CompanyLocationTree({
                   data-testid={`link-location-${location.id}`}
                 >
                   <Link href={`/location/${location.id}`}>
-                    <span className="flex-1 truncate text-sm">{location.name}</span>
+                    <span className="flex-1 truncate text-sm">
+                      {location.name}
+                    </span>
                     <Badge variant="secondary" className="text-xs h-5">
                       {getDeviceCount(location.id)}
                     </Badge>

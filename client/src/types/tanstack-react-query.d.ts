@@ -3,6 +3,23 @@ declare module "@tanstack/react-query" {
     constructor(options?: any);
   }
   export const QueryClientProvider: any;
-  export type QueryFunction = any;
+  export type QueryFunction<T = any> = (context: { queryKey: any[] }) => Promise<T>;
+  export function useQuery<T = any>(options: { queryKey: any[]; queryFn?: any; enabled?: boolean }): {
+    data: T | undefined;
+    isLoading: boolean;
+    error: any;
+    refetch: () => void;
+  };
+  export function useMutation<TData = any, TVariables = any>(options: {
+    mutationFn: (variables: TVariables) => Promise<TData>;
+    onSuccess?: (data: TData) => void;
+    onError?: (error: any) => void;
+  }): {
+    mutate: (variables: TVariables) => void;
+    mutateAsync: (variables: TVariables) => Promise<TData>;
+    isPending: boolean;
+    isLoading: boolean;
+    error: any;
+  };
 }
 

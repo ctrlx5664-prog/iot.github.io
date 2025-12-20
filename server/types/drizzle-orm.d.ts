@@ -9,6 +9,8 @@ declare module "drizzle-orm/pg-core" {
 
 declare module "drizzle-orm" {
   export function eq(column: any, value: any): any;
+  export function and(...conditions: any[]): any;
+  export function or(...conditions: any[]): any;
 }
 
 declare module "drizzle-orm/neon-http" {
