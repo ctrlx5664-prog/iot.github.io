@@ -32,8 +32,8 @@ jobs:
 
       - name: Build frontend (Vite)
         env:
-          # GitHub Pages serves from "/<repo>/"
-          VITE_BASE: "/${{ github.event.repository.name }}/"
+          # Use root base for custom domains to avoid asset 404s
+          VITE_BASE: "/"
           # Avoid 404s on refresh by using hash routing on Pages
           VITE_ROUTER_MODE: "hash"
           # Set this as a GitHub repo Variable or Secret (recommended)
