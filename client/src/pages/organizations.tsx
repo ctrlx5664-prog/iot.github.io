@@ -176,13 +176,13 @@ export default function Organizations() {
   );
 }
 
-function OrgCard({
-  org,
-  onUpdate,
-}: {
+interface OrgCardProps {
+  key?: string;
   org: Organization;
-  onUpdate: () => void;
-}) {
+  onUpdate: () => void | Promise<void>;
+}
+
+function OrgCard({ org, onUpdate }: OrgCardProps) {
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loadingInvites, setLoadingInvites] = useState(false);

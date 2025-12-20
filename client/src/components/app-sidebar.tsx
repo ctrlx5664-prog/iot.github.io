@@ -149,17 +149,20 @@ export function AppSidebar() {
   );
 }
 
+interface CompanyLocationTreeProps {
+  key?: string;
+  company: Company;
+  locations: Location[];
+  getDeviceCount: (locationId: string) => number;
+  currentPath: string;
+}
+
 function CompanyLocationTree({
   company,
   locations,
   getDeviceCount,
   currentPath,
-}: {
-  company: Company;
-  locations: Location[];
-  getDeviceCount: (locationId: string) => number;
-  currentPath: string;
-}) {
+}: CompanyLocationTreeProps) {
   const [isOpen, setIsOpen] = useState(true);
 
   return (
