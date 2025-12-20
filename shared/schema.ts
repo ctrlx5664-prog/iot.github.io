@@ -1,7 +1,55 @@
 import { z } from "zod";
 
+// Organization schemas
+export const insertOrganizationSchema = z.object({
+  name: z.string().min(1, "Organization name is required"),
+  description: z.string().optional(),
+});
+
+export const organizationSchema = insertOrganizationSchema.extend({
+  id: z.string(),
+  createdAt: z.date(),
+});
+
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type Organization = z.infer<typeof organizationSchema>;
+
+// User-Organization membership
+export const userOrganizationSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  organizationId: z.string(),
+  role: z.enum(["owner", "admin", "member"]),
+  invitedAt: z.date(),
+});
+
+export type UserOrganization = z.infer<typeof userOrganizationSchema>;
+
+// Organization invite
+export const createInviteSchema = z.object({
+  organizationId: z.string(),
+  role: z.enum(["admin", "member"]).default("member"),
+  invitedEmail: z.string().email().optional(),
+});
+
+export const organizationInviteSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  invitedByUserId: z.string(),
+  invitedEmail: z.string().nullable(),
+  inviteCode: z.string(),
+  role: z.string(),
+  expiresAt: z.date().nullable(),
+  usedAt: z.date().nullable(),
+  createdAt: z.date(),
+});
+
+export type CreateInvite = z.infer<typeof createInviteSchema>;
+export type OrganizationInvite = z.infer<typeof organizationInviteSchema>;
+
 // Company schemas
 export const insertCompanySchema = z.object({
+  organizationId: z.string().min(1, "Organization ID is required"),
   name: z.string().min(1, "Company name is required"),
   description: z.string().optional(),
 });
