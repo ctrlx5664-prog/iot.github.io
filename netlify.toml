@@ -1,0 +1,13 @@
+[build]
+  # Backend-only deployment (API via Netlify Functions)
+  command = "node -e \"console.log('backend-only build')\""
+  publish = "public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
