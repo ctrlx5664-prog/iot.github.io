@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Slider } from "@/components/ui/slider";
 import { apiUrl, getToken } from "@/lib/auth";
 import {
   Power,
@@ -448,55 +449,76 @@ function MediaPlayerCard({
 
       {/* Volume controls */}
       {isOn && (canSetVolume || canMute || canVolumeStep) && (
-        <div className="flex items-center gap-2">
-          {canMute && (
-            <Button
-              size="icon"
-              variant={isMuted ? "destructive" : "outline"}
-              onClick={() =>
-                onService("media_player", "volume_mute", entity.entity_id, {
-                  is_volume_muted: !isMuted,
-                })
-              }
-              disabled={isLoading(entity.entity_id, "volume_mute")}
-            >
-              {isMuted ? (
-                <VolumeX className="w-4 h-4" />
-              ) : (
-                <Volume2 className="w-4 h-4" />
-              )}
-            </Button>
-          )}
-
-          {canVolumeStep && (
-            <>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            {/* Mute button */}
+            {canMute && (
               <Button
                 size="icon"
+                variant={isMuted ? "destructive" : "outline"}
+                onClick={() =>
+                  onService("media_player", "volume_mute", entity.entity_id, {
+                    is_volume_muted: !isMuted,
+                  })
+                }
+                disabled={isLoading(entity.entity_id, "volume_mute")}
+              >
+                {isMuted ? (
+                  <VolumeX className="w-4 h-4" />
+                ) : (
+                  <Volume2 className="w-4 h-4" />
+                )}
+              </Button>
+            )}
+
+            {/* Volume slider */}
+            {canSetVolume && (
+              <div className="flex items-center gap-3 flex-1">
+                <Slider
+                  value={[Math.round((volume || 0) * 100)]}
+                  onValueChange={(values: number[]) => {
+                    const newVolume = values[0] / 100;
+                    onService("media_player", "volume_set", entity.entity_id, {
+                      volume_level: newVolume,
+                    });
+                  }}
+                  max={100}
+                  step={5}
+                  className="flex-1"
+                />
+                <span className="text-sm font-medium w-12 text-right">
+                  {Math.round((volume || 0) * 100)}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Volume step buttons */}
+          {canVolumeStep && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
                 variant="outline"
                 onClick={() =>
                   onService("media_player", "volume_down", entity.entity_id)
                 }
                 disabled={isLoading(entity.entity_id, "volume_down")}
               >
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4 mr-1" />
+                Volume -
               </Button>
               <Button
-                size="icon"
+                size="sm"
                 variant="outline"
                 onClick={() =>
                   onService("media_player", "volume_up", entity.entity_id)
                 }
                 disabled={isLoading(entity.entity_id, "volume_up")}
               >
-                <ChevronUp className="w-4 h-4" />
+                <ChevronUp className="w-4 h-4 mr-1" />
+                Volume +
               </Button>
-            </>
-          )}
-
-          {volume !== undefined && (
-            <span className="text-sm text-muted-foreground ml-2">
-              Volume: {Math.round(volume * 100)}%
-            </span>
+            </div>
           )}
         </div>
       )}
