@@ -37,7 +37,7 @@ jobs:
           # Use path routing; 404.html fallback serves index.html for deep links
           VITE_ROUTER_MODE: "path"
           # Prefer repo Variable; fallback to Secret if you set it there
-          VITE_API_BASE_URL: "https://cerulean-youtiao-491f82.netlify.app/.netlify/functions/api"
+          VITE_API_BASE_URL: "https://cerulean-youtiao-491f82.netlify.app/.netlify/functions"
           VITE_API_CREDENTIALS: "omit"
         run: npm run build:client
 
