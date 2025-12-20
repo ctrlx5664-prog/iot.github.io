@@ -79,6 +79,16 @@ export default function Login() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>
+            <p className="text-sm text-center text-muted-foreground">
+              Not registered yet?{" "}
+              <button
+                type="button"
+                className="text-primary underline hover:text-primary/80"
+                onClick={() => navigate("/register")}
+              >
+                Register here
+              </button>
+            </p>
           </form>
         </CardContent>
       </Card>

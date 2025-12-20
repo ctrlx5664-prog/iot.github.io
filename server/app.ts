@@ -20,8 +20,10 @@ export async function createApp(opts?: { broadcastDeviceUpdate?: BroadcastDevice
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     const allowAll = allowedOrigins.length === 0;
+    const originAllowed = origin && (allowAll || allowedOrigins.includes(origin));
 
-    if (origin && (allowAll || allowedOrigins.includes(origin))) {
+    // Always set CORS headers for allowed origins
+    if (originAllowed) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -29,8 +31,10 @@ export async function createApp(opts?: { broadcastDeviceUpdate?: BroadcastDevice
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
     }
 
+    // Always respond to OPTIONS (preflight) - even if origin not allowed, to avoid hanging
     if (req.method === "OPTIONS") {
-      return res.status(204).end();
+      // If origin not allowed, still respond but without CORS headers (browser will block)
+      return res.status(originAllowed ? 204 : 403).end();
     }
 
     next();

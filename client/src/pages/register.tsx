@@ -47,7 +47,7 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-screen flex items-center justify-center bg-muted/50">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Create account</CardTitle>
@@ -78,14 +78,16 @@ export default function Register() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Creating..." : "Create account"}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={() => navigate("/login")}
-            >
-              Back to login
-            </Button>
+            <p className="text-sm text-center text-muted-foreground">
+              Already registered?{" "}
+              <button
+                type="button"
+                className="text-primary underline hover:text-primary/80"
+                onClick={() => navigate("/login")}
+              >
+                Login here
+              </button>
+            </p>
           </form>
         </CardContent>
       </Card>
