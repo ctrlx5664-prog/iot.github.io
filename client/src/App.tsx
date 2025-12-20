@@ -1,4 +1,4 @@
-import { Switch, Route, Link, Router as WouterRouter, useHashLocation } from "wouter";
+import { Switch, Route, Link, Router as WouterRouter } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -15,6 +15,7 @@ import Videos from "@/pages/videos";
 import NotFound from "@/pages/not-found";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 function Routes() {
   // Initialize WebSocket connection
@@ -26,26 +27,30 @@ function Routes() {
       <Route path="/companies" component={Companies} />
       <Route path="/location/:id" component={LocationDetail} />
       <Route path="/videos" component={Videos} />
-      <Route component={NotFound} />
+      <Route path="*" component={NotFound} />
     </Switch>
   );
 }
 
 export default function App() {
-  const style = {
+  const style: CSSProperties = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   };
 
   // GitHub Pages doesn't support SPA rewrites; use hash routing there.
-  const routerMode = (import.meta.env.VITE_ROUTER_MODE as string | undefined) ?? "path";
-  const routerHook = routerMode === "hash" ? useHashLocation : undefined;
+  const routerMode =
+    (import.meta.env.VITE_ROUTER_MODE as string | undefined) ?? "path";
+  const routerHook = useMemo(
+    () => (routerMode === "hash" ? useHashLocation : undefined),
+    [routerMode]
+  );
 
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
-          <SidebarProvider style={style as React.CSSProperties}>
+          <SidebarProvider style={style}>
             <div className="flex h-screen w-full">
               <AppSidebar />
               <div className="flex flex-col flex-1 overflow-hidden">
@@ -78,4 +83,31 @@ export default function App() {
       </ThemeProvider>
     </QueryClientProvider>
   );
+}
+
+// Minimal hash-based location hook for wouter Router.
+// Signature matches wouter's `hook` contract: () => [path, navigate]
+function useHashLocation(): [string, (to: string) => void] {
+  const getHashPath = () => {
+    const hash = window.location.hash || "";
+    const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+    // Support both "#/path" and "#path" by normalizing to "/path"
+    const path = raw.startsWith("/") ? raw : `/${raw}`;
+    return path === "/" ? "/" : path.replace(/\/+$/, "");
+  };
+
+  const [path, setPath] = useState<string>(() => getHashPath());
+
+  useEffect(() => {
+    const onChange = () => setPath(getHashPath());
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+
+  const navigate = (to: string) => {
+    const normalized = to.startsWith("/") ? to : `/${to}`;
+    window.location.hash = normalized;
+  };
+
+  return [path, navigate];
 }
