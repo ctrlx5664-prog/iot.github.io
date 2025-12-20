@@ -12,7 +12,10 @@ import {
   type Tv,
 } from "@shared/schema";
 import { ZodError } from "zod";
-import crypto from "crypto";
+import crypto, { randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { getDb } from "./db/client";
+import { users } from "./db/schema";
+import { eq } from "drizzle-orm";
 
 export type BroadcastDeviceUpdate = (
   type: "light_update" | "tv_update",
@@ -30,8 +33,8 @@ export async function registerRoutes(
 
   // --- Auth helpers (JWT, simple credential check) ---
   const jwtSecret = process.env.JWT_SECRET ?? "please-change-me";
-  const authUsername = process.env.AUTH_USERNAME ?? "admin";
-  const authPassword = process.env.AUTH_PASSWORD ?? "changeme";
+  const defaultAuthUsername = process.env.AUTH_USERNAME ?? "admin";
+  const defaultAuthPassword = process.env.AUTH_PASSWORD ?? "changeme";
 
   function base64url(input: any) {
     return input
@@ -80,6 +83,36 @@ export async function registerRoutes(
     return token;
   }
 
+  // --- User storage helpers (DB-backed auth) ---
+  function hashPassword(password: string) {
+    const salt = randomBytes(16).toString("hex");
+    const derived = scryptSync(password, salt, 64).toString("hex");
+    return `${salt}:${derived}`;
+  }
+
+  function verifyPassword(password: string, stored: string) {
+    const [salt, hashed] = stored.split(":");
+    if (!salt || !hashed) return false;
+    const derived = scryptSync(password, salt, 64).toString("hex");
+    return timingSafeEqual(Buffer.from(hashed, "hex"), Buffer.from(derived, "hex"));
+  }
+
+  async function findUser(username: string) {
+    const db = await getDb();
+    const rows = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return rows[0];
+  }
+
+  async function ensureDefaultUser() {
+    const db = await getDb();
+    const existing = await db.select().from(users).where(eq(users.username, defaultAuthUsername)).limit(1);
+    if (existing.length > 0) return;
+    const passwordHash = hashPassword(defaultAuthPassword);
+    await db.insert(users).values({ username: defaultAuthUsername, passwordHash });
+  }
+
+  await ensureDefaultUser();
+
   // --- Home Assistant proxy helpers ---
   const haBaseUrl = (process.env.HA_BASE_URL ?? "").replace(/\/+$/, "");
   const haToken = process.env.HA_TOKEN ?? "";
@@ -114,11 +147,28 @@ export async function registerRoutes(
   // --- Auth routes ---
   app.post("/api/auth/login", async (req, res) => {
     const { username, password } = req.body || {};
-    if (username !== authUsername || password !== authPassword) {
+    const user = username ? await findUser(username) : null;
+    if (!user || !verifyPassword(password ?? "", user.passwordHash)) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
     const token = signJwt({ sub: username });
     res.json({ token, user: { username } });
+  });
+
+  app.post("/api/auth/register", async (req, res) => {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: "username and password are required" });
+    }
+    const existing = await findUser(username);
+    if (existing) {
+      return res.status(409).json({ error: "User already exists" });
+    }
+    const passwordHash = hashPassword(password);
+    const db = await getDb();
+    await db.insert(users).values({ username, passwordHash });
+    const token = signJwt({ sub: username });
+    res.status(201).json({ token, user: { username } });
   });
 
   app.get("/api/auth/me", async (req, res) => {

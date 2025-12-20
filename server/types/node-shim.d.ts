@@ -6,5 +6,12 @@ declare module "crypto" {
     update(data: any): any;
     digest(): any;
   };
+  export function randomBytes(size: number): { toString(encoding: string): string };
+  export function scryptSync(password: any, salt: any, keylen: number): any;
+  export function timingSafeEqual(a: any, b: any): boolean;
+}
+
+declare module "drizzle-orm" {
+  export const eq: any;
 }
 
