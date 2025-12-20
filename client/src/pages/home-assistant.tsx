@@ -312,6 +312,14 @@ function MediaPlayerCard({
   const mediaArtist = entity.attributes?.media_artist;
   const supportedFeatures = entity.attributes?.supported_features || 0;
 
+  // Local state for volume slider (only updates when user releases)
+  const [localVolume, setLocalVolume] = useState<number | undefined>(volume);
+
+  // Update local volume when entity volume changes
+  useEffect(() => {
+    setLocalVolume(volume);
+  }, [volume]);
+
   // Feature flags (from Home Assistant)
   const SUPPORT_PAUSE = 1;
   const SUPPORT_VOLUME_SET = 4;
@@ -475,8 +483,13 @@ function MediaPlayerCard({
             {canSetVolume && (
               <div className="flex items-center gap-3 flex-1">
                 <Slider
-                  value={[Math.round((volume || 0) * 100)]}
+                  value={[Math.round((localVolume || 0) * 100)]}
                   onValueChange={(values: number[]) => {
+                    // Update local state immediately for visual feedback
+                    setLocalVolume(values[0] / 100);
+                  }}
+                  onValueCommit={(values: number[]) => {
+                    // Only call API when user releases the slider
                     const newVolume = values[0] / 100;
                     onService("media_player", "volume_set", entity.entity_id, {
                       volume_level: newVolume,
@@ -487,7 +500,7 @@ function MediaPlayerCard({
                   className="flex-1"
                 />
                 <span className="text-sm font-medium w-12 text-right">
-                  {Math.round((volume || 0) * 100)}%
+                  {Math.round((localVolume || 0) * 100)}%
                 </span>
               </div>
             )}
