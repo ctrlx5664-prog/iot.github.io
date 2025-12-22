@@ -1044,13 +1044,114 @@ export async function registerRoutes(
     res.send(html);
   }
 
-  // Route that returns the HA base URL for direct access
-  // This allows the frontend to load HA directly without proxying
-  app.get("/api/ha/url", async (_req, res) => {
-    if (!haBaseUrl) {
-      return res.status(500).json({ error: "HA_BASE_URL not configured" });
+  // Proxy route for Home Assistant dashboard
+  // This allows embedding the full HA dashboard via iframe
+  // Home Assistant frontend is a SPA that requires proper authentication
+  // This route proxies the dashboard HTML and injects authentication
+  app.get("/api/ha/dashboard", async (req, res) => {
+    const dashboard = req.query.dashboard as string || "lovelace"; // Default to "lovelace" or custom dashboard name
+    const view = req.query.view as string || "default_view";
+    
+    console.log("[HA Dashboard] Request received:", {
+      dashboard,
+      view,
+      query: req.query,
+      userAgent: req.headers['user-agent'],
+    });
+    
+    if (!haBaseUrl || !haToken) {
+      console.error("[HA Dashboard] Configuration missing:", {
+        hasBaseUrl: !!haBaseUrl,
+        hasToken: !!haToken,
+        baseUrl: haBaseUrl || "(not set)",
+      });
+      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
     }
-    res.json({ url: haBaseUrl });
+
+    try {
+      // Build dashboard URL - supports both default lovelace and custom dashboards
+      // Examples:
+      // - /lovelace/default_view (default dashboard)
+      // - /dashboard-conex/aa (custom dashboard)
+      let dashboardUrl: string;
+      if (dashboard === "lovelace") {
+        dashboardUrl = `${haBaseUrl}/lovelace/${encodeURIComponent(view)}`;
+      } else {
+        // Custom dashboard: /dashboard-{name}/{view}
+        dashboardUrl = `${haBaseUrl}/${dashboard}/${encodeURIComponent(view)}`;
+      }
+      
+      console.log("[HA Dashboard] Attempting to load:", {
+        dashboardUrl,
+        dashboard,
+        view,
+      });
+      
+      // Fetch the dashboard HTML from Home Assistant
+      const response = await fetch(dashboardUrl, {
+        headers: {
+          Authorization: `Bearer ${haToken}`,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      });
+
+      console.log("[HA Dashboard] Response from HA:", {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get("content-type"),
+        contentLength: response.headers.get("content-length"),
+        url: dashboardUrl,
+      });
+
+      if (!response.ok) {
+        // If specific dashboard fails, try the root dashboard
+        console.log("[HA Dashboard] Failed to load specific dashboard, trying root:", {
+          originalStatus: response.status,
+          originalStatusText: response.statusText,
+        });
+        const rootResponse = await fetch(`${haBaseUrl}/`, {
+          headers: {
+            Authorization: `Bearer ${haToken}`,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+        });
+
+        console.log("[HA Dashboard] Root response:", {
+          status: rootResponse.status,
+          statusText: rootResponse.statusText,
+        });
+
+        if (!rootResponse.ok) {
+          console.error("[HA Dashboard] Both dashboard and root failed:", {
+            dashboardUrl,
+            dashboardStatus: response.status,
+            rootStatus: rootResponse.status,
+          });
+          return res.status(rootResponse.status).json({ 
+            error: `Failed to load dashboard: ${rootResponse.statusText}`,
+            attemptedUrl: dashboardUrl
+          });
+        }
+
+        const html = await rootResponse.text();
+        console.log("[HA Dashboard] Successfully loaded root dashboard, HTML length:", html.length);
+        return serveProxiedDashboard(html, res);
+      }
+
+      const html = await response.text();
+      console.log("[HA Dashboard] Successfully loaded dashboard, HTML length:", html.length);
+      return serveProxiedDashboard(html, res);
+    } catch (err: any) {
+      console.error("[HA Dashboard] Error:", {
+        error: err?.message,
+        stack: err?.stack,
+        dashboard,
+        view,
+      });
+      res.status(500).json({ error: `Failed to proxy dashboard: ${err?.message}` });
+    }
   });
 
   // Catch-all route for /ha/* to handle any direct navigation or resource requests
