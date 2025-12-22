@@ -652,6 +652,75 @@ export async function registerRoutes(
     }
   }
 
+  // Service Worker route - serves the SW as a real file to ensure it works properly
+  app.get("/ha-proxy-sw.js", (_req, res) => {
+    const swCode = `
+      // Force immediate activation
+      self.addEventListener('install', function(event) {
+        console.log('[HA Proxy SW] Installing...');
+        self.skipWaiting();
+      });
+      
+      self.addEventListener('activate', function(event) {
+        console.log('[HA Proxy SW] Activating...');
+        event.waitUntil(
+          self.clients.claim().then(function() {
+            console.log('[HA Proxy SW] Activated and claiming clients');
+          })
+        );
+      });
+      
+      self.addEventListener('fetch', function(event) {
+        const url = new URL(event.request.url);
+        const currentOrigin = self.location.origin;
+        
+        console.log('[HA Proxy SW] Intercepting request:', event.request.url);
+        
+        // Only intercept requests to current origin
+        if (url.origin === currentOrigin) {
+          const path = url.pathname;
+          
+          // If it's not already proxied and not an API call, proxy it
+          if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
+            const isResourceFile = /\\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+            const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                   path.startsWith('/static/') ||
+                                   path.startsWith('/homeassistant/') ||
+                                   path.startsWith('/hacsfiles/') ||
+                                   path.startsWith('/local/');
+            
+            if (isResourceFile || isResourcePath) {
+              const proxyUrl = currentOrigin + '/api/ha/static' + path + url.search;
+              console.log('[HA Proxy SW] Intercepting resource:', event.request.url, '->', proxyUrl);
+              event.respondWith(
+                fetch(proxyUrl, {
+                  method: event.request.method,
+                  headers: event.request.headers,
+                  body: event.request.body,
+                  mode: event.request.mode,
+                  credentials: event.request.credentials,
+                  cache: event.request.cache,
+                  redirect: event.request.redirect
+                }).catch(function(error) {
+                  console.error('[HA Proxy SW] Fetch error for:', proxyUrl, error);
+                  return fetch(event.request);
+                })
+              );
+              return;
+            }
+          }
+        }
+        
+        // For all other requests, use network
+        event.respondWith(fetch(event.request));
+      });
+    `;
+    
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Service-Worker-Allowed", "/");
+    res.send(swCode);
+  });
+
   // Simplified route for Home Assistant static assets via /api/ha/static/*
   // Accepts any path and proxies directly to HA
   // Format: /api/ha/static/frontend_latest/core.js -> HA/frontend_latest/core.js
@@ -836,91 +905,39 @@ export async function registerRoutes(
               // Register Service Worker to intercept ALL requests including dynamic imports
               // CRITICAL: This intercepts ES6 dynamic imports that don't go through fetch
               if ('serviceWorker' in navigator) {
-                // Use inline Service Worker code
-                const swCode = \`
-                  // Force immediate activation
-                  self.addEventListener('install', function(event) {
-                    console.log('[HA Proxy SW] Installing...');
-                    self.skipWaiting();
-                  });
-                  
-                  self.addEventListener('activate', function(event) {
-                    console.log('[HA Proxy SW] Activating...');
-                    event.waitUntil(
-                      self.clients.claim().then(function() {
-                        console.log('[HA Proxy SW] Activated and claiming clients');
-                      })
-                    );
-                  });
-                  
-                  self.addEventListener('fetch', function(event) {
-                    const url = new URL(event.request.url);
-                    const currentOrigin = self.location.origin;
-                    
-                    console.log('[HA Proxy SW] Intercepting request:', event.request.url);
-                    
-                    // Only intercept requests to current origin
-                    if (url.origin === currentOrigin) {
-                      const path = url.pathname;
-                      
-                      // If it's not already proxied and not an API call, proxy it
-                      if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
-                        const isResourceFile = /\\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
-                        const isResourcePath = path.startsWith('/frontend_latest/') || 
-                                               path.startsWith('/static/') ||
-                                               path.startsWith('/homeassistant/') ||
-                                               path.startsWith('/hacsfiles/') ||
-                                               path.startsWith('/local/');
-                        
-                        if (isResourceFile || isResourcePath) {
-                          const proxyUrl = currentOrigin + '/api/ha/static' + path + url.search;
-                          console.log('[HA Proxy SW] Intercepting resource:', event.request.url, '->', proxyUrl);
-                          event.respondWith(
-                            fetch(proxyUrl, {
-                              method: event.request.method,
-                              headers: event.request.headers,
-                              body: event.request.body,
-                              mode: event.request.mode,
-                              credentials: event.request.credentials,
-                              cache: event.request.cache,
-                              redirect: event.request.redirect
-                            }).catch(function(error) {
-                              console.error('[HA Proxy SW] Fetch error for:', proxyUrl, error);
-                              return fetch(event.request);
-                            })
-                          );
-                          return;
-                        }
-                      }
-                    }
-                    
-                    // For all other requests, use network
-                    event.respondWith(fetch(event.request));
-                  });
-                \`;
-                
-                // Create blob URL for Service Worker
-                const blob = new Blob([swCode], { type: 'application/javascript' });
-                const swUrl = URL.createObjectURL(blob);
+                // Use a real Service Worker file instead of blob for better compatibility
+                const swUrl = '/ha-proxy-sw.js';
                 
                 // Unregister any existing service workers first
                 navigator.serviceWorker.getRegistrations().then(function(registrations) {
                   return Promise.all(registrations.map(function(registration) {
+                    console.log('[HA Proxy] Unregistering existing SW:', registration.scope);
                     return registration.unregister();
                   }));
                 }).then(function() {
-                  // Register new Service Worker
+                  // Register new Service Worker from real file
                   return navigator.serviceWorker.register(swUrl, { scope: '/' });
                 }).then(function(registration) {
                   console.log('[HA Proxy] Service Worker registered:', registration.scope);
+                  
                   // Force immediate activation
                   if (registration.installing) {
                     registration.installing.addEventListener('statechange', function() {
+                      console.log('[HA Proxy] SW state changed:', this.state);
                       if (this.state === 'installed' && navigator.serviceWorker.controller) {
+                        console.log('[HA Proxy] SW installed, reloading page...');
                         window.location.reload();
                       }
                     });
                   }
+                  
+                  // Also check if already active
+                  if (registration.active) {
+                    registration.active.addEventListener('statechange', function() {
+                      console.log('[HA Proxy] SW active state changed:', this.state);
+                    });
+                  }
+                  
                   return registration.update();
                 }).catch(function(error) {
                   console.warn('[HA Proxy] Service Worker registration failed:', error);
