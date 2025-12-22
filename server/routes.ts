@@ -231,6 +231,10 @@ export async function registerRoutes(
     if (req.path.startsWith("/ha") || req.path.startsWith("/states") || req.path.startsWith("/services") || req.path.startsWith("/websocket")) {
       return next();
     }
+    // Allow HA static asset routes
+    if (req.path.startsWith("/ha/static/")) {
+      return next();
+    }
     const token = getBearerToken(req);
     const payload = token ? verifyJwt(token) : null;
     if (!payload) {
@@ -505,80 +509,85 @@ export async function registerRoutes(
     });
   });
 
-  // Catch-all routes for Home Assistant static assets
-  // These routes intercept requests to HA static resources and proxy them directly
-  // This prevents 404 errors when the iframe tries to load resources directly
-  const haStaticPaths = ['static', 'frontend_latest', 'local', 'homeassistant', 'hacsfiles'];
-  
-  haStaticPaths.forEach(staticPath => {
-    app.get(`/${staticPath}/*`, async (req, res) => {
-      const path = req.params[0] || "";
-      const fullPath = `${staticPath}/${path}`;
-      const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-      
-      console.log("[HA Static] Intercepted request:", {
-        staticPath,
-        path,
-        fullPath,
-        originalUrl: req.originalUrl,
-        url: req.url,
-      });
-      
-      if (!haBaseUrl || !haToken) {
-        console.error("[HA Static] Configuration missing");
-        return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
-      }
-
-      try {
-        const targetUrl = `${haBaseUrl}/${fullPath}${queryString}`;
-        console.log("[HA Static] Proxying to HA:", targetUrl);
-        
-        const response = await fetch(targetUrl, {
-          headers: {
-            Authorization: `Bearer ${haToken}`,
-            "User-Agent": "Mozilla/5.0",
-          },
-        });
-
-        console.log("[HA Static] Response:", {
-          status: response.status,
-          contentType: response.headers.get("content-type"),
-        });
-
-        if (!response.ok) {
-          console.warn("[HA Static] Failed:", {
-            status: response.status,
-            targetUrl,
-          });
-          return res.status(response.status).end();
-        }
-
-        // Forward content type and other headers
-        const contentType = response.headers.get("content-type");
-        if (contentType) {
-          res.setHeader("Content-Type", contentType);
-        }
-        
-        const cacheControl = response.headers.get("cache-control");
-        if (cacheControl) {
-          res.setHeader("Cache-Control", cacheControl);
-        }
-
-        // Stream the response
-        const buffer = await response.arrayBuffer();
-        console.log("[HA Static] Successfully proxied:", {
-          fullPath,
-          size: buffer.byteLength,
-        });
-        res.send(Buffer.from(buffer));
-      } catch (err: any) {
-        console.error("[HA Static] Error:", {
-          fullPath,
-          error: err?.message,
-        });
-        res.status(500).end();
-      }
+  // Routes for Home Assistant static assets via /api/ha/static/*
+  // In Netlify, only /api/* routes go through the serverless function
+  // So we need to route static assets through /api/ha/static/*
+  // Format: /api/ha/static/static/path/to/file or /api/ha/static/frontend_latest/path/to/file
+  app.get("/api/ha/static/:staticType/*", async (req, res) => {
+    const staticType = req.params.staticType || "";
+    const path = req.params[0] || "";
+    const fullPath = `${staticType}/${path}`;
+    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    
+    console.log("[HA Static] Intercepted request:", {
+      staticType,
+      path,
+      fullPath,
+      originalUrl: req.originalUrl,
+      url: req.url,
     });
+    
+    // Validate static type
+    const validTypes = ['static', 'frontend_latest', 'local', 'homeassistant', 'hacsfiles'];
+    if (!validTypes.includes(staticType)) {
+      console.warn("[HA Static] Invalid static type:", staticType);
+      return res.status(400).json({ error: "Invalid static resource type" });
+    }
+    
+    if (!haBaseUrl || !haToken) {
+      console.error("[HA Static] Configuration missing");
+      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
+    }
+
+    try {
+      const targetUrl = `${haBaseUrl}/${fullPath}${queryString}`;
+      console.log("[HA Static] Proxying to HA:", targetUrl);
+      
+      const response = await fetch(targetUrl, {
+        headers: {
+          Authorization: `Bearer ${haToken}`,
+          "User-Agent": "Mozilla/5.0",
+        },
+      });
+
+      console.log("[HA Static] Response:", {
+        status: response.status,
+        contentType: response.headers.get("content-type"),
+      });
+
+      if (!response.ok) {
+        console.warn("[HA Static] Failed:", {
+          status: response.status,
+          targetUrl,
+        });
+        return res.status(response.status).end();
+      }
+
+      // Forward content type and other headers
+      const contentType = response.headers.get("content-type");
+      if (contentType) {
+        res.setHeader("Content-Type", contentType);
+      }
+      
+      const cacheControl = response.headers.get("cache-control");
+      if (cacheControl) {
+        res.setHeader("Cache-Control", cacheControl);
+      }
+
+      // Stream the response
+      const buffer = await response.arrayBuffer();
+      console.log("[HA Static] Successfully proxied:", {
+        fullPath,
+        size: buffer.byteLength,
+      });
+      res.send(Buffer.from(buffer));
+    } catch (err: any) {
+      console.error("[HA Static] Error:", {
+        fullPath,
+        error: err?.message,
+      });
+      res.status(500).end();
+    }
   });
 
   // Proxy route for Home Assistant static assets (JS, CSS, fonts, etc.)
@@ -676,26 +685,63 @@ export async function registerRoutes(
     // Replace asset paths to go through our proxy to avoid CORS issues
     html = html
       // Replace relative asset paths to use our proxy
+      // In Netlify, we need to route through /api/ha/static/* to go through serverless function
       .replace(/href="\/([^"]+)"/g, (match, path) => {
         // Skip API paths and WebSocket - they have their own handlers
-        if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+        if (path.startsWith('static/')) {
           hrefReplacements++;
-          return `href="/api/ha/proxy/${path}"`;
+          return `href="/api/ha/static/static/${path.substring(7)}"`;
+        } else if (path.startsWith('frontend_latest/')) {
+          hrefReplacements++;
+          return `href="/api/ha/static/frontend_latest/${path.substring(16)}"`;
+        } else if (path.startsWith('local/')) {
+          hrefReplacements++;
+          return `href="/api/ha/static/local/${path.substring(6)}"`;
+        } else if (path.startsWith('homeassistant/')) {
+          hrefReplacements++;
+          return `href="/api/ha/static/homeassistant/${path.substring(14)}"`;
+        } else if (path.startsWith('hacsfiles/')) {
+          hrefReplacements++;
+          return `href="/api/ha/static/hacsfiles/${path.substring(11)}"`;
         }
         return match; // Keep original for API paths
       })
       .replace(/src="\/([^"]+)"/g, (match, path) => {
         // Proxy static assets through our server
-        if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+        if (path.startsWith('static/')) {
           srcReplacements++;
-          return `src="/api/ha/proxy/${path}"`;
+          return `src="/api/ha/static/static/${path.substring(7)}"`;
+        } else if (path.startsWith('frontend_latest/')) {
+          srcReplacements++;
+          return `src="/api/ha/static/frontend_latest/${path.substring(16)}"`;
+        } else if (path.startsWith('local/')) {
+          srcReplacements++;
+          return `src="/api/ha/static/local/${path.substring(6)}"`;
+        } else if (path.startsWith('homeassistant/')) {
+          srcReplacements++;
+          return `src="/api/ha/static/homeassistant/${path.substring(14)}"`;
+        } else if (path.startsWith('hacsfiles/')) {
+          srcReplacements++;
+          return `src="/api/ha/static/hacsfiles/${path.substring(11)}"`;
         }
         return match; // Keep original for API paths
       })
       .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
-        if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+        if (path.startsWith('static/')) {
           urlReplacements++;
-          return `url('/api/ha/proxy/${path}')`;
+          return `url('/api/ha/static/static/${path.substring(7)}')`;
+        } else if (path.startsWith('frontend_latest/')) {
+          urlReplacements++;
+          return `url('/api/ha/static/frontend_latest/${path.substring(16)}')`;
+        } else if (path.startsWith('local/')) {
+          urlReplacements++;
+          return `url('/api/ha/static/local/${path.substring(6)}')`;
+        } else if (path.startsWith('homeassistant/')) {
+          urlReplacements++;
+          return `url('/api/ha/static/homeassistant/${path.substring(14)}')`;
+        } else if (path.startsWith('hacsfiles/')) {
+          urlReplacements++;
+          return `url('/api/ha/static/hacsfiles/${path.substring(11)}')`;
         }
         return match;
       })
