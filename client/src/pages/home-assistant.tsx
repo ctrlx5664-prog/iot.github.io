@@ -12,7 +12,7 @@ export default function HomeAssistant() {
   const params = new URLSearchParams();
   if (dashboard) params.set("dashboard", dashboard);
   if (view) params.set("view", view);
-  
+
   const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${params.toString()}`;
 
   return (

@@ -834,8 +834,18 @@ export async function registerRoutes(
               }
               
               // Relative URLs without leading slash - use proxy
-              if (url.includes('.')) {
-                return '/api/ha/static/' + url;
+              // This catches cases like "frontend_latest/core.js" (no leading slash)
+              if (url.includes('.') && !url.startsWith('http') && !url.startsWith('//')) {
+                // If it looks like a file path (has extension), proxy it
+                const hasExtension = /\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(url);
+                if (hasExtension) {
+                  return '/api/ha/static/' + url;
+                }
+              }
+              
+              // Log unhandled URLs for debugging
+              if (url && !url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('#')) {
+                console.warn('[HA Proxy] Unhandled URL:', url);
               }
               
               return url;
@@ -923,6 +933,21 @@ export async function registerRoutes(
               return originalXHRSend.call(this, data);
             };
             
+            // Override URL constructor to intercept absolute URLs
+            const originalURL = window.URL;
+            window.URL = function(url, base) {
+              if (typeof url === 'string') {
+                url = rewriteUrl(url);
+              }
+              if (typeof base === 'string') {
+                base = rewriteUrl(base);
+              }
+              return new originalURL(url, base);
+            };
+            // Copy static methods
+            window.URL.createObjectURL = originalURL.createObjectURL;
+            window.URL.revokeObjectURL = originalURL.revokeObjectURL;
+
             // Override createElement to intercept script/link tags
             const originalCreateElement = document.createElement;
             document.createElement = function(tagName, options) {
@@ -940,30 +965,35 @@ export async function registerRoutes(
                 
                 // Intercept direct property assignment
                 if (tagName === 'script') {
+                  let srcValue = '';
                   Object.defineProperty(element, 'src', {
                     set: function(value) {
                       if (typeof value === 'string') {
-                        value = rewriteUrl(value);
+                        srcValue = rewriteUrl(value);
+                        this.setAttribute('src', srcValue);
+                      } else {
+                        srcValue = value;
                       }
-                      originalCreateElement.call(document, 'script').src = value;
-                      this.setAttribute('src', value);
                     },
                     get: function() {
-                      return this.getAttribute('src');
+                      return srcValue || this.getAttribute('src') || '';
                     }
                   });
                 }
                 
                 if (tagName === 'link') {
+                  let hrefValue = '';
                   Object.defineProperty(element, 'href', {
                     set: function(value) {
                       if (typeof value === 'string') {
-                        value = rewriteUrl(value);
+                        hrefValue = rewriteUrl(value);
+                        this.setAttribute('href', hrefValue);
+                      } else {
+                        hrefValue = value;
                       }
-                      this.setAttribute('href', value);
                     },
                     get: function() {
-                      return this.getAttribute('href');
+                      return hrefValue || this.getAttribute('href') || '';
                     }
                   });
                 }
