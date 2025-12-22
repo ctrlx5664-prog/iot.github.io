@@ -832,6 +832,54 @@ export async function registerRoutes(
             // CRITICAL: Run immediately, before DOM is ready
             (function() {
               console.log('[HA Proxy] Injection script loaded and executing');
+              
+              // Register Service Worker to intercept ALL requests including dynamic imports
+              if ('serviceWorker' in navigator) {
+                const swCode = \`
+                  self.addEventListener('fetch', function(event) {
+                    const url = new URL(event.request.url);
+                    const currentOrigin = self.location.origin;
+                    
+                    // Only intercept requests to current origin
+                    if (url.origin === currentOrigin) {
+                      const path = url.pathname;
+                      
+                      // If it's not already proxied and not an API call, proxy it
+                      if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
+                        const isResourceFile = /\\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+                        const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                               path.startsWith('/static/') ||
+                                               path.startsWith('/homeassistant/') ||
+                                               path.startsWith('/hacsfiles/') ||
+                                               path.startsWith('/local/');
+                        
+                        if (isResourceFile || isResourcePath) {
+                          const proxyUrl = currentOrigin + '/api/ha/static' + path + url.search;
+                          console.log('[HA Proxy SW] Intercepting:', event.request.url, '->', proxyUrl);
+                          event.respondWith(fetch(proxyUrl, event.request));
+                          return;
+                        }
+                      }
+                    }
+                    
+                    // For all other requests, use network
+                    event.respondWith(fetch(event.request));
+                  });
+                \`;
+                
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                
+                navigator.serviceWorker.register(swUrl, { scope: '/' })
+                  .then(function(registration) {
+                    console.log('[HA Proxy] Service Worker registered:', registration.scope);
+                    // Force activation
+                    return registration.update();
+                  })
+                  .catch(function(error) {
+                    console.warn('[HA Proxy] Service Worker registration failed:', error);
+                  });
+              }
               // Home Assistant authentication configuration
               window.hassTokens = { access_token: "${haToken}" };
               window.hassUrl = "${haBaseUrl}";
@@ -873,15 +921,25 @@ export async function registerRoutes(
               }
               
               // Absolute URLs pointing to current origin (Netlify) - convert to proxy
-              // This catches resources that are being loaded directly from Netlify
+              // This catches resources that are being loaded directly from Netlify (including dynamic imports)
               const currentOrigin = window.location.origin;
               if (url.startsWith(currentOrigin)) {
                 const path = url.substring(currentOrigin.length);
                 // If it's not already proxied and not an API call, proxy it
                 if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
-                  const rewritten = '/api/ha/static' + path;
-                  console.log('[HA Proxy] Rewriting current origin URL:', url, '->', rewritten);
-                  return rewritten;
+                  // Check if it looks like a resource file that should be proxied
+                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+                  const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                         path.startsWith('/static/') ||
+                                         path.startsWith('/homeassistant/') ||
+                                         path.startsWith('/hacsfiles/') ||
+                                         path.startsWith('/local/');
+                  
+                  if (isResourceFile || isResourcePath) {
+                    const rewritten = '/api/ha/static' + path;
+                    console.log('[HA Proxy] Rewriting current origin URL (resource):', url, '->', rewritten);
+                    return rewritten;
+                  }
                 }
                 console.log('[HA Proxy] Current origin URL already proxied or API:', url);
                 return path; // Already proxied or API call
@@ -920,10 +978,36 @@ export async function registerRoutes(
             }
             
             // Override fetch to handle API calls through proxy and add auth token
+            // CRITICAL: This must intercept ALL fetch requests, including those from dynamic imports
             const originalFetch = window.fetch;
             window.fetch = function(url, options = {}) {
-              const urlStr = typeof url === 'string' ? url : url.toString();
+              let urlStr = typeof url === 'string' ? url : url.toString();
               console.log('[HA Proxy] Fetch called with URL:', urlStr, 'method:', options?.method || 'GET');
+              
+              // CRITICAL: Check if this is a request to current origin that should be proxied
+              // This catches dynamic imports that resolve to absolute URLs
+              const currentOrigin = window.location.origin;
+              
+              // If it's an absolute URL to current origin and not already proxied, rewrite it
+              if (urlStr.startsWith(currentOrigin)) {
+                const path = urlStr.substring(currentOrigin.length);
+                // If it's not already proxied and not an API call, it should go through proxy
+                if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
+                  // Check if it looks like a resource file or resource path
+                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+                  const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                         path.startsWith('/static/') ||
+                                         path.startsWith('/homeassistant/') ||
+                                         path.startsWith('/hacsfiles/') ||
+                                         path.startsWith('/local/');
+                  
+                  if (isResourceFile || isResourcePath) {
+                    urlStr = '/api/ha/static' + path;
+                    console.log('[HA Proxy] Fetch: Rewriting absolute URL to proxy:', url, '->', urlStr);
+                  }
+                }
+              }
+              
               const rewrittenUrl = rewriteUrl(urlStr);
               
               // Log URL rewrites for debugging
@@ -947,12 +1031,37 @@ export async function registerRoutes(
               }
               
               // For proxied static assets, convert to absolute URL
+              // This includes resources rewritten from absolute URLs
               if (rewrittenUrl.startsWith('/api/ha/static/')) {
                 const proxyUrl = window.location.origin + rewrittenUrl;
+                console.log('[HA Proxy] Fetch: Proxying static asset:', rewrittenUrl, '->', proxyUrl);
                 return originalFetch(proxyUrl, options).catch(function(error) {
                   console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
                   throw error;
                 });
+              }
+              
+              // If the original URL was an absolute URL to current origin that should be proxied
+              // but wasn't caught above, try to proxy it now
+              if (typeof url === 'string' && url.startsWith(currentOrigin)) {
+                const path = url.substring(currentOrigin.length);
+                if (!path.startsWith('/api/')) {
+                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+                  const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                         path.startsWith('/static/') ||
+                                         path.startsWith('/homeassistant/') ||
+                                         path.startsWith('/hacsfiles/') ||
+                                         path.startsWith('/local/');
+                  
+                  if (isResourceFile || isResourcePath) {
+                    const proxyUrl = window.location.origin + '/api/ha/static' + path;
+                    console.log('[HA Proxy] Fetch: Late interception of resource:', url, '->', proxyUrl);
+                    return originalFetch(proxyUrl, options).catch(function(error) {
+                      console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
+                      throw error;
+                    });
+                  }
+                }
               }
               
               // If URL points to HA and is an API call, add auth header
