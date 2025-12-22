@@ -763,7 +763,27 @@ export async function registerRoutes(
       // In Netlify, we need to route through /api/ha/static/* to go through serverless function
       // Replace relative URLs - use proxy to avoid CORS issues
       // Resources go through proxy, but API calls are handled separately
+      // IMPORTANT: Process link tags FIRST (before generic href) to catch modulepreload
+      .replace(/<link([^>]*?)href="\/([^"]+)"([^>]*?)>/gi, (match, before, path, after) => {
+        // API paths stay relative
+        if (path.startsWith('api/')) {
+          return match;
+        }
+        // Check if it's a modulepreload or preload link, or a resource file
+        const isModulePreload = /rel=["'](?:modulepreload|preload)["']/i.test(before + after);
+        const isResourceFile = /\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+        // Proxy all modulepreload/preload links and resource files
+        if (isModulePreload || isResourceFile) {
+          const newUrl = `/api/ha/static/${path}`;
+          hrefReplacements++;
+          replacedUrls.push(`<link href="/${path}"> -> <link href="${newUrl}">`);
+          return `<link${before}href="${newUrl}"${after}>`;
+        }
+        return match;
+      })
+      // Then replace other href attributes (not in link tags, already processed above)
       .replace(/href="\/([^"]+)"/g, (match, path) => {
+        // Skip if this is inside a link tag (already processed)
         // API paths stay relative - will be handled by JavaScript with auth
         if (path.startsWith('api/')) {
           return match;
@@ -774,6 +794,7 @@ export async function registerRoutes(
         replacedUrls.push(`${match} -> href="${newUrl}"`);
         return `href="${newUrl}"`;
       })
+      // Replace src attributes in script tags and other elements
       .replace(/src="\/([^"]+)"/g, (match, path) => {
         // API paths stay relative - will be handled by JavaScript with auth
         if (path.startsWith('api/')) {
@@ -801,10 +822,13 @@ export async function registerRoutes(
       .replace(/wss:\/\/[^/]+/g, wsBaseUrl)
       // Inject authentication token and configuration
       // IMPORTANT: This script must run IMMEDIATELY, before any other scripts
+      // Use a blocking script (no async/defer) to ensure it runs first
       .replace(
         /<head>/i,
         `<head>
           <script>
+            // BLOCKING SCRIPT - Must run before ANY other script
+            // This intercepts resources BEFORE they are loaded
             // CRITICAL: Run immediately, before DOM is ready
             (function() {
               console.log('[HA Proxy] Injection script loaded and executing');
