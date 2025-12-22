@@ -36,7 +36,7 @@ export default function HomeAssistant() {
 
       <div className="flex-1 relative">
         <iframe
-          src={dashboardUrl}
+          src="https://ctrlxprod.diogomendes.me/dashboard-conex/aa"
           className="w-full h-full border-0"
           title="Home Assistant Dashboard"
           onError={() => setError("Failed to load Home Assistant dashboard")}
