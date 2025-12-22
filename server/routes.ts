@@ -505,6 +505,51 @@ export async function registerRoutes(
     });
   });
 
+  // Proxy route for Home Assistant static assets (JS, CSS, fonts, etc.)
+  // This prevents CORS errors by proxying all resources through our server
+  app.get("/api/ha/proxy/*", async (req, res) => {
+    const path = req.params[0] || "";
+    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    
+    if (!haBaseUrl || !haToken) {
+      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
+    }
+
+    try {
+      const targetUrl = `${haBaseUrl}/${path}${queryString}`;
+      
+      const response = await fetch(targetUrl, {
+        headers: {
+          Authorization: `Bearer ${haToken}`,
+          "User-Agent": "Mozilla/5.0",
+        },
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).end();
+      }
+
+      // Forward content type and other headers
+      const contentType = response.headers.get("content-type");
+      if (contentType) {
+        res.setHeader("Content-Type", contentType);
+      }
+      
+      // Forward cache headers if present
+      const cacheControl = response.headers.get("cache-control");
+      if (cacheControl) {
+        res.setHeader("Cache-Control", cacheControl);
+      }
+
+      // Stream the response
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (err: any) {
+      console.error("[HA Proxy] Error proxying resource:", path, err?.message);
+      res.status(500).end();
+    }
+  });
+
   // Helper function to process and serve proxied dashboard HTML
   function serveProxiedDashboard(html: string, res: any) {
     // Get the protocol (http/https) and convert to ws/wss for WebSocket
@@ -512,12 +557,29 @@ export async function registerRoutes(
     const wsBaseUrl = haBaseUrl.replace(/^https?:/, wsProtocol);
     
     // Modify the HTML to work in an iframe and inject authentication
-    // We keep API paths as-is since we have matching proxy routes
+    // Replace asset paths to go through our proxy to avoid CORS issues
     html = html
-      // Replace relative asset paths with absolute URLs to Home Assistant
-      .replace(/href="\//g, `href="${haBaseUrl}/`)
-      .replace(/src="\//g, `src="${haBaseUrl}/`)
-      .replace(/url\(['"]?\//g, `url('${haBaseUrl}/`)
+      // Replace relative asset paths to use our proxy
+      .replace(/href="\/([^"]+)"/g, (match, path) => {
+        // Skip API paths and WebSocket - they have their own handlers
+        if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+          return `href="/api/ha/proxy/${path}"`;
+        }
+        return match; // Keep original for API paths
+      })
+      .replace(/src="\/([^"]+)"/g, (match, path) => {
+        // Proxy static assets through our server
+        if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+          return `src="/api/ha/proxy/${path}"`;
+        }
+        return match; // Keep original for API paths
+      })
+      .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
+        if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+          return `url('/api/ha/proxy/${path}')`;
+        }
+        return match;
+      })
       // Replace WebSocket URLs to point to Home Assistant
       .replace(/ws:\/\/[^/]+/g, wsBaseUrl)
       .replace(/wss:\/\/[^/]+/g, wsBaseUrl)
