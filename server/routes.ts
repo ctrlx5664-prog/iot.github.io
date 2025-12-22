@@ -509,30 +509,18 @@ export async function registerRoutes(
     });
   });
 
-  // Routes for Home Assistant static assets via /api/ha/static/*
-  // In Netlify, only /api/* routes go through the serverless function
-  // So we need to route static assets through /api/ha/static/*
-  // Format: /api/ha/static/static/path/to/file or /api/ha/static/frontend_latest/path/to/file
-  app.get("/api/ha/static/:staticType/*", async (req, res) => {
-    const staticType = req.params.staticType || "";
+  // Simplified route for Home Assistant static assets via /api/ha/static/*
+  // Accepts any path and proxies directly to HA
+  // Format: /api/ha/static/frontend_latest/core.js -> HA/frontend_latest/core.js
+  app.get("/api/ha/static/*", async (req, res) => {
     const path = req.params[0] || "";
-    const fullPath = `${staticType}/${path}`;
     const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
     
-    console.log("[HA Static] Intercepted request:", {
-      staticType,
+    console.log("[HA Static] Request received:", {
       path,
-      fullPath,
       originalUrl: req.originalUrl,
       url: req.url,
     });
-    
-    // Validate static type
-    const validTypes = ['static', 'frontend_latest', 'local', 'homeassistant', 'hacsfiles'];
-    if (!validTypes.includes(staticType)) {
-      console.warn("[HA Static] Invalid static type:", staticType);
-      return res.status(400).json({ error: "Invalid static resource type" });
-    }
     
     if (!haBaseUrl || !haToken) {
       console.error("[HA Static] Configuration missing");
@@ -540,24 +528,28 @@ export async function registerRoutes(
     }
 
     try {
-      const targetUrl = `${haBaseUrl}/${fullPath}${queryString}`;
+      const targetUrl = `${haBaseUrl}/${path}${queryString}`;
       console.log("[HA Static] Proxying to HA:", targetUrl);
       
       const response = await fetch(targetUrl, {
         headers: {
           Authorization: `Bearer ${haToken}`,
-          "User-Agent": "Mozilla/5.0",
+          "User-Agent": req.headers['user-agent'] || "Mozilla/5.0",
+          Accept: req.headers.accept || "*/*",
         },
       });
 
       console.log("[HA Static] Response:", {
         status: response.status,
+        statusText: response.statusText,
         contentType: response.headers.get("content-type"),
+        path,
       });
 
       if (!response.ok) {
         console.warn("[HA Static] Failed:", {
           status: response.status,
+          statusText: response.statusText,
           targetUrl,
         });
         return res.status(response.status).end();
@@ -573,17 +565,23 @@ export async function registerRoutes(
       if (cacheControl) {
         res.setHeader("Cache-Control", cacheControl);
       }
+      
+      // Forward CORS headers to allow iframe access
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
       // Stream the response
       const buffer = await response.arrayBuffer();
       console.log("[HA Static] Successfully proxied:", {
-        fullPath,
+        path,
         size: buffer.byteLength,
+        contentType,
       });
       res.send(Buffer.from(buffer));
     } catch (err: any) {
       console.error("[HA Static] Error:", {
-        fullPath,
+        path,
         error: err?.message,
       });
       res.status(500).end();
@@ -687,36 +685,37 @@ export async function registerRoutes(
     html = html
       // Replace relative asset paths to use our proxy
       // In Netlify, we need to route through /api/ha/static/* to go through serverless function
-      // Replace relative URLs with absolute HA URLs - load resources directly from HA
+      // Replace relative URLs - use proxy to avoid CORS issues
+      // Resources go through proxy, but API calls are handled separately
       .replace(/href="\/([^"]+)"/g, (match, path) => {
-        // Skip API paths - they need to go through proxy for authentication
+        // API paths stay relative - will be handled by JavaScript with auth
         if (path.startsWith('api/')) {
-          return match; // Keep API paths as relative (will be handled by JavaScript)
+          return match;
         }
-        // Convert all other relative URLs to absolute HA URLs
-        const newUrl = `${haBaseUrl}/${path}`;
+        // All other resources go through proxy to avoid CORS
+        const newUrl = `/api/ha/static/${path}`;
         hrefReplacements++;
         replacedUrls.push(`${match} -> href="${newUrl}"`);
         return `href="${newUrl}"`;
       })
       .replace(/src="\/([^"]+)"/g, (match, path) => {
-        // Skip API paths - they need to go through proxy for authentication
+        // API paths stay relative - will be handled by JavaScript with auth
         if (path.startsWith('api/')) {
-          return match; // Keep API paths as relative (will be handled by JavaScript)
+          return match;
         }
-        // Convert all other relative URLs to absolute HA URLs
-        const newUrl = `${haBaseUrl}/${path}`;
+        // All other resources go through proxy to avoid CORS
+        const newUrl = `/api/ha/static/${path}`;
         srcReplacements++;
         replacedUrls.push(`${match} -> src="${newUrl}"`);
         return `src="${newUrl}"`;
       })
       .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
-        // Skip API paths
+        // API paths stay relative
         if (path.startsWith('api/')) {
           return match;
         }
-        // Convert CSS URLs to absolute HA URLs
-        const newUrl = `${haBaseUrl}/${path}`;
+        // CSS URLs go through proxy to avoid CORS
+        const newUrl = `/api/ha/static/${path}`;
         urlReplacements++;
         replacedUrls.push(`${match} -> url('${newUrl}')`);
         return `url('${newUrl}')`;
@@ -736,8 +735,7 @@ export async function registerRoutes(
               window.hassTokens = { access_token: "${haToken}" };
               window.hassUrl = "${haBaseUrl}";
             
-            // Helper function to rewrite URLs - convert relative to absolute HA URLs, proxy API calls
-            const haBaseUrlValue = "${haBaseUrl}";
+            // Helper function to rewrite URLs - use proxy for static assets, keep API calls relative
             function rewriteUrl(url) {
               if (!url) return url;
               if (typeof url !== 'string') url = url.toString();
@@ -747,25 +745,31 @@ export async function registerRoutes(
                 return url;
               }
               
-              // Already absolute URL pointing to HA - keep it
-              if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
+              // Already proxied URLs - keep them
+              if (url.startsWith('/api/ha/static/')) {
                 return url;
               }
               
-              // Relative URLs starting with /api/ - proxy through our server for authentication
+              // API calls - keep relative, will be handled by fetch override
               if (url.startsWith('/api/')) {
-                return url; // Keep as relative, will be handled by fetch override
+                return url;
               }
               
-              // Other relative URLs - convert to absolute HA URLs
+              // Absolute URLs pointing to HA - convert to proxy
+              const haBaseUrlValue = "${haBaseUrl}";
+              if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
+                const path = url.substring(haBaseUrlValue.length);
+                return '/api/ha/static' + path;
+              }
+              
+              // Relative URLs - use proxy
               if (url.startsWith('/')) {
-                return haBaseUrlValue + url;
+                return '/api/ha/static' + url;
               }
               
-              // Relative URLs without leading slash - resolve relative to HA base
+              // Relative URLs without leading slash - use proxy
               if (url.includes('.')) {
-                // Likely a file, resolve relative to HA base
-                return haBaseUrlValue + '/' + url;
+                return '/api/ha/static/' + url;
               }
               
               return url;
