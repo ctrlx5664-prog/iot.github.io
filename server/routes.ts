@@ -838,17 +838,26 @@ export async function registerRoutes(
               if ('serviceWorker' in navigator) {
                 // Use inline Service Worker code
                 const swCode = \`
+                  // Force immediate activation
                   self.addEventListener('install', function(event) {
+                    console.log('[HA Proxy SW] Installing...');
                     self.skipWaiting();
                   });
                   
                   self.addEventListener('activate', function(event) {
-                    event.waitUntil(self.clients.claim());
+                    console.log('[HA Proxy SW] Activating...');
+                    event.waitUntil(
+                      self.clients.claim().then(function() {
+                        console.log('[HA Proxy SW] Activated and claiming clients');
+                      })
+                    );
                   });
                   
                   self.addEventListener('fetch', function(event) {
                     const url = new URL(event.request.url);
                     const currentOrigin = self.location.origin;
+                    
+                    console.log('[HA Proxy SW] Intercepting request:', event.request.url);
                     
                     // Only intercept requests to current origin
                     if (url.origin === currentOrigin) {
@@ -865,7 +874,7 @@ export async function registerRoutes(
                         
                         if (isResourceFile || isResourcePath) {
                           const proxyUrl = currentOrigin + '/api/ha/static' + path + url.search;
-                          console.log('[HA Proxy SW] Intercepting:', event.request.url, '->', proxyUrl);
+                          console.log('[HA Proxy SW] Intercepting resource:', event.request.url, '->', proxyUrl);
                           event.respondWith(
                             fetch(proxyUrl, {
                               method: event.request.method,
@@ -876,7 +885,7 @@ export async function registerRoutes(
                               cache: event.request.cache,
                               redirect: event.request.redirect
                             }).catch(function(error) {
-                              console.error('[HA Proxy SW] Fetch error:', error);
+                              console.error('[HA Proxy SW] Fetch error for:', proxyUrl, error);
                               return fetch(event.request);
                             })
                           );
@@ -1019,13 +1028,14 @@ export async function registerRoutes(
             const originalFetch = window.fetch;
             window.fetch = function(url, options = {}) {
               let urlStr = typeof url === 'string' ? url : url.toString();
+              const originalUrlStr = urlStr;
               console.log('[HA Proxy] Fetch called with URL:', urlStr, 'method:', options?.method || 'GET');
               
               // CRITICAL: Check if this is a request to current origin that should be proxied
               // This catches dynamic imports that resolve to absolute URLs
               const currentOrigin = window.location.origin;
               
-              // If it's an absolute URL to current origin and not already proxied, rewrite it
+              // If it's an absolute URL to current origin and not already proxied, rewrite it IMMEDIATELY
               if (urlStr.startsWith(currentOrigin)) {
                 const path = urlStr.substring(currentOrigin.length);
                 // If it's not already proxied and not an API call, it should go through proxy
@@ -1040,12 +1050,40 @@ export async function registerRoutes(
                   
                   if (isResourceFile || isResourcePath) {
                     urlStr = '/api/ha/static' + path;
-                    console.log('[HA Proxy] Fetch: Rewriting absolute URL to proxy:', url, '->', urlStr);
+                    console.log('[HA Proxy] Fetch: IMMEDIATE rewrite of absolute URL:', originalUrlStr, '->', urlStr);
+                    // Convert to absolute URL for fetch
+                    const proxyUrl = currentOrigin + urlStr;
+                    return originalFetch(proxyUrl, options).catch(function(error) {
+                      console.error('[HA Proxy] Fetch error for proxied resource:', proxyUrl, error);
+                      throw error;
+                    });
                   }
                 }
               }
               
               const rewrittenUrl = rewriteUrl(urlStr);
+              
+              // DOUBLE CHECK: If rewritten URL is still an absolute URL to current origin that should be proxied
+              if (rewrittenUrl.startsWith(currentOrigin)) {
+                const path = rewrittenUrl.substring(currentOrigin.length);
+                if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
+                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+                  const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                         path.startsWith('/static/') ||
+                                         path.startsWith('/homeassistant/') ||
+                                         path.startsWith('/hacsfiles/') ||
+                                         path.startsWith('/local/');
+                  
+                  if (isResourceFile || isResourcePath) {
+                    const proxyUrl = currentOrigin + '/api/ha/static' + path;
+                    console.log('[HA Proxy] Fetch: SECONDARY rewrite of absolute URL:', rewrittenUrl, '->', proxyUrl);
+                    return originalFetch(proxyUrl, options).catch(function(error) {
+                      console.error('[HA Proxy] Fetch error for proxied resource:', proxyUrl, error);
+                      throw error;
+                    });
+                  }
+                }
+              }
               
               // Log URL rewrites for debugging
               if (urlStr !== rewrittenUrl) {
