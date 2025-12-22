@@ -783,39 +783,114 @@ export async function registerRoutes(
       .replace(
         /<head>/i,
         `<head>
-          <base href="/">
           <script>
             // Home Assistant authentication configuration
             window.hassTokens = { access_token: "${haToken}" };
             window.hassUrl = "${haBaseUrl}";
             
-            // Override fetch to include auth token for API calls
-            // API calls to /api/* will go through our proxy routes
+            // Helper function to rewrite URLs to go through proxy
+            const haBaseUrlValue = "${haBaseUrl}";
+            function rewriteUrl(url) {
+              if (typeof url !== 'string') url = url.toString();
+              
+              // Already proxied or external URL
+              if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('//')) {
+                // If it's pointing to HA base URL, rewrite to use /ha/* proxy
+                if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
+                  const path = url.substring(haBaseUrlValue.length);
+                  return '/ha' + path;
+                }
+                return url;
+              }
+              
+              // Relative URLs - rewrite static assets to use proxy
+              if (url.startsWith('/static/')) {
+                return '/api/ha/static/static' + url.substring(7);
+              } else if (url.startsWith('/frontend_latest/')) {
+                return '/api/ha/static/frontend_latest' + url.substring(16);
+              } else if (url.startsWith('/local/')) {
+                return '/api/ha/static/local' + url.substring(6);
+              } else if (url.startsWith('/homeassistant/')) {
+                return '/api/ha/static/homeassistant' + url.substring(14);
+              } else if (url.startsWith('/hacsfiles/')) {
+                return '/api/ha/static/hacsfiles' + url.substring(10);
+              } else if (url.startsWith('/api/')) {
+                // API calls go through our proxy
+                return url;
+              } else if (url.startsWith('/')) {
+                // Other absolute paths - proxy through /ha/*
+                return '/ha' + url;
+              }
+              
+              return url;
+            }
+            
+            // Override fetch to rewrite URLs and include auth token
             const originalFetch = window.fetch;
             window.fetch = function(url, options = {}) {
               const urlStr = typeof url === 'string' ? url : url.toString();
-              // Add auth header for API calls (they'll be proxied by our server)
-              if (urlStr.startsWith('/api/') || urlStr.includes('/api/')) {
+              const rewrittenUrl = rewriteUrl(urlStr);
+              
+              // Add auth header for API calls
+              if (rewrittenUrl.startsWith('/api/') || rewrittenUrl.includes('/api/')) {
                 options = options || {};
                 options.headers = options.headers || {};
                 options.headers['Authorization'] = 'Bearer ${haToken}';
               }
-              return originalFetch(url, options);
+              
+              return originalFetch(rewrittenUrl, options);
+            };
+            
+            // Override XMLHttpRequest to rewrite URLs
+            const originalXHROpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+              const rewrittenUrl = rewriteUrl(url);
+              return originalXHROpen.call(this, method, rewrittenUrl, ...rest);
+            };
+            
+            // Override createElement to intercept script/link tags
+            const originalCreateElement = document.createElement;
+            document.createElement = function(tagName, options) {
+              const element = originalCreateElement.call(this, tagName, options);
+              
+              if (tagName === 'script' || tagName === 'link') {
+                const originalSetAttribute = element.setAttribute;
+                element.setAttribute = function(name, value) {
+                  if ((name === 'src' || name === 'href') && typeof value === 'string') {
+                    value = rewriteUrl(value);
+                  }
+                  return originalSetAttribute.call(this, name, value);
+                };
+              }
+              
+              return element;
             };
             
             // Override WebSocket to include auth for Home Assistant WebSocket
             const originalWebSocket = window.WebSocket;
             window.WebSocket = function(url, protocols) {
-              if (typeof url === 'string' && url.includes('/api/websocket')) {
+              const urlStr = typeof url === 'string' ? url : url.toString();
+              const rewrittenUrl = rewriteUrl(urlStr);
+              
+              if (rewrittenUrl.includes('/api/websocket')) {
                 // Home Assistant WebSocket requires auth via first message
-                const ws = new originalWebSocket(url, protocols);
+                const ws = new originalWebSocket(rewrittenUrl, protocols);
                 ws.addEventListener('open', function() {
                   ws.send(JSON.stringify({ type: 'auth', access_token: '${haToken}' }));
                 });
                 return ws;
               }
-              return new originalWebSocket(url, protocols);
+              return new originalWebSocket(rewrittenUrl, protocols);
             };
+            
+            // Intercept dynamic imports and module loading
+            if (window.System && window.System.import) {
+              const originalSystemImport = window.System.import;
+              window.System.import = function(module) {
+                const rewrittenModule = rewriteUrl(module);
+                return originalSystemImport.call(this, rewrittenModule);
+              };
+            }
           </script>`
       );
 
@@ -943,6 +1018,102 @@ export async function registerRoutes(
       res.status(500).json({ error: `Failed to proxy dashboard: ${err?.message}` });
     }
   });
+
+  // Catch-all route for /ha/* to handle any direct navigation or resource requests
+  // This ensures that if the iframe tries to navigate to /ha or load resources from /ha/*,
+  // they get properly proxied to Home Assistant
+  // Use app.use to match all routes starting with /ha
+  app.use("/ha", async (req: any, res: any, next: any) => {
+    // Only handle GET requests for now
+    if (req.method !== 'GET') {
+      return next();
+    }
+    
+    // Extract path after /ha
+    // req.path will be like "/ha" or "/ha/something/else"
+    let path = req.path;
+    if (path.startsWith('/ha')) {
+      path = path.substring(3); // Remove '/ha'
+      if (path.startsWith('/')) {
+        path = path.substring(1); // Remove leading '/'
+      }
+    }
+    
+    // If path is empty, it's just /ha - redirect to dashboard
+    if (!path || path === '') {
+      const dashboard = (req.query.dashboard as string) || "lovelace";
+      const view = (req.query.view as string) || "default_view";
+      return res.redirect(`/api/ha/dashboard?dashboard=${encodeURIComponent(dashboard)}&view=${encodeURIComponent(view)}`);
+    }
+    
+    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    
+    console.log("[HA Catch-all] Request received:", {
+      path,
+      originalUrl: req.originalUrl,
+      reqPath: req.path,
+      method: req.method,
+      queryString,
+    });
+    
+    if (!haBaseUrl || !haToken) {
+      console.error("[HA Catch-all] Configuration missing");
+      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
+    }
+
+    try {
+      // Determine if this is an HTML page (dashboard) or a resource
+      const targetUrl = `${haBaseUrl}/${path}${queryString}`;
+      console.log("[HA Catch-all] Proxying to HA:", targetUrl);
+      
+      const response = await fetch(targetUrl, {
+        headers: {
+          Authorization: `Bearer ${haToken}`,
+          "User-Agent": req.headers['user-agent'] || "Mozilla/5.0",
+          Accept: req.headers.accept || "*/*",
+        },
+      });
+
+      console.log("[HA Catch-all] Response:", {
+        status: response.status,
+        contentType: response.headers.get("content-type"),
+        path,
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).end();
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      
+      // If it's HTML, process it through serveProxiedDashboard
+      if (contentType.includes("text/html")) {
+        const html = await response.text();
+        return serveProxiedDashboard(html, res);
+      }
+      
+      // Otherwise, proxy the resource as-is
+      if (contentType) {
+        res.setHeader("Content-Type", contentType);
+      }
+      
+      const cacheControl = response.headers.get("cache-control");
+      if (cacheControl) {
+        res.setHeader("Cache-Control", cacheControl);
+      }
+
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (err: any) {
+      console.error("[HA Catch-all] Error:", {
+        path,
+        error: err?.message,
+      });
+      res.status(500).end();
+    }
+    // Don't call next() - we've handled the request
+  });
+
   // Companies
   app.get("/api/companies", async (_req, res) => {
     try {
