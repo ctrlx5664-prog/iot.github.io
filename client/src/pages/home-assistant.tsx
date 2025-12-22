@@ -3,12 +3,16 @@ import { apiUrl } from "@/lib/auth";
 
 export default function HomeAssistant() {
   const [error, setError] = useState<string | null>(null);
-  const [view] = useState<string>("default_view");
+  // Default to "dashboard-conex" based on your setup, or "lovelace" for default
+  const [dashboard] = useState<string>("dashboard-conex");
+  const [view] = useState<string>("aa");
 
-  // Build the dashboard URL with optional view parameter
-  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}${
-    view ? `?view=${encodeURIComponent(view)}` : ""
-  }`;
+  // Build the dashboard URL with dashboard and view parameters
+  const params = new URLSearchParams();
+  if (dashboard) params.set("dashboard", dashboard);
+  if (view) params.set("view", view);
+  
+  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${params.toString()}`;
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -17,7 +21,7 @@ export default function HomeAssistant() {
           <div>
             <h1 className="text-2xl font-semibold">Home Assistant Dashboard</h1>
             <p className="text-sm text-muted-foreground">
-              Dashboard completo do Home Assistant
+              Dashboard: {dashboard} / View: {view}
             </p>
           </div>
         </div>

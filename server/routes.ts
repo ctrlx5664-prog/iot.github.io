@@ -572,6 +572,7 @@ export async function registerRoutes(
   // Home Assistant frontend is a SPA that requires proper authentication
   // This route proxies the dashboard HTML and injects authentication
   app.get("/api/ha/dashboard", async (req, res) => {
+    const dashboard = req.query.dashboard as string || "lovelace"; // Default to "lovelace" or custom dashboard name
     const view = req.query.view as string || "default_view";
     
     if (!haBaseUrl || !haToken) {
@@ -579,8 +580,19 @@ export async function registerRoutes(
     }
 
     try {
-      // Get the dashboard URL - try the lovelace view first
-      const dashboardUrl = `${haBaseUrl}/lovelace/${encodeURIComponent(view)}`;
+      // Build dashboard URL - supports both default lovelace and custom dashboards
+      // Examples:
+      // - /lovelace/default_view (default dashboard)
+      // - /dashboard-conex/aa (custom dashboard)
+      let dashboardUrl: string;
+      if (dashboard === "lovelace") {
+        dashboardUrl = `${haBaseUrl}/lovelace/${encodeURIComponent(view)}`;
+      } else {
+        // Custom dashboard: /dashboard-{name}/{view}
+        dashboardUrl = `${haBaseUrl}/${dashboard}/${encodeURIComponent(view)}`;
+      }
+      
+      console.log("[HA Dashboard] Attempting to load:", dashboardUrl);
       
       // Fetch the dashboard HTML from Home Assistant
       const response = await fetch(dashboardUrl, {
@@ -592,7 +604,8 @@ export async function registerRoutes(
       });
 
       if (!response.ok) {
-        // If lovelace view fails, try the root dashboard
+        // If specific dashboard fails, try the root dashboard
+        console.log("[HA Dashboard] Failed to load specific dashboard, trying root");
         const rootResponse = await fetch(`${haBaseUrl}/`, {
           headers: {
             Authorization: `Bearer ${haToken}`,
@@ -603,7 +616,8 @@ export async function registerRoutes(
 
         if (!rootResponse.ok) {
           return res.status(rootResponse.status).json({ 
-            error: `Failed to load dashboard: ${rootResponse.statusText}` 
+            error: `Failed to load dashboard: ${rootResponse.statusText}`,
+            attemptedUrl: dashboardUrl
           });
         }
 
