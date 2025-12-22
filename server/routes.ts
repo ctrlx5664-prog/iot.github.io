@@ -437,6 +437,7 @@ export async function registerRoutes(
   });
 
   // --- Home Assistant proxy routes ---
+  // Routes under /api/ha/ for explicit proxy calls
   app.get("/api/ha/states", async (_req, res) => {
     console.log("[HA Route] GET /api/ha/states called");
     const result = await haRequest("GET", "/api/states");
@@ -462,6 +463,154 @@ export async function registerRoutes(
     );
     console.log("[HA Route] POST /api/ha/services result:", result.status);
     return res.status(result.status).json(result.json);
+  });
+
+  // Routes matching Home Assistant API structure for iframe dashboard
+  // These allow the embedded HA frontend to make API calls through our proxy
+  app.get("/api/states", async (_req, res) => {
+    const result = await haRequest("GET", "/api/states");
+    return res.status(result.status).json(result.json);
+  });
+
+  app.get("/api/states/:entityId", async (req, res) => {
+    const { entityId } = req.params;
+    const result = await haRequest("GET", `/api/states/${encodeURIComponent(entityId)}`);
+    return res.status(result.status).json(result.json);
+  });
+
+  app.post("/api/services/:domain/:service", async (req, res) => {
+    const { domain, service } = req.params;
+    const result = await haRequest(
+      "POST",
+      `/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`,
+      req.body ?? {},
+    );
+    return res.status(result.status).json(result.json);
+  });
+
+  // WebSocket proxy for Home Assistant (if needed)
+  // Note: WebSocket proxying is complex and may require a separate WebSocket server
+  app.get("/api/websocket", async (_req, res) => {
+    // WebSocket upgrade requests should be handled differently
+    // For now, return an error suggesting direct connection
+    res.status(426).json({ 
+      error: "WebSocket connections should be made directly to Home Assistant",
+      message: "The dashboard iframe will handle WebSocket connections with injected authentication"
+    });
+  });
+
+  // Helper function to process and serve proxied dashboard HTML
+  function serveProxiedDashboard(html: string, res: any) {
+    // Get the protocol (http/https) and convert to ws/wss for WebSocket
+    const wsProtocol = haBaseUrl.startsWith("https") ? "wss" : "ws";
+    const wsBaseUrl = haBaseUrl.replace(/^https?:/, wsProtocol);
+    
+    // Modify the HTML to work in an iframe and inject authentication
+    // We keep API paths as-is since we have matching proxy routes
+    html = html
+      // Replace relative asset paths with absolute URLs to Home Assistant
+      .replace(/href="\//g, `href="${haBaseUrl}/`)
+      .replace(/src="\//g, `src="${haBaseUrl}/`)
+      .replace(/url\(['"]?\//g, `url('${haBaseUrl}/`)
+      // Replace WebSocket URLs to point to Home Assistant
+      .replace(/ws:\/\/[^/]+/g, wsBaseUrl)
+      .replace(/wss:\/\/[^/]+/g, wsBaseUrl)
+      // Inject authentication token and configuration
+      .replace(
+        /<head>/i,
+        `<head>
+          <base href="/">
+          <script>
+            // Home Assistant authentication configuration
+            window.hassTokens = { access_token: "${haToken}" };
+            window.hassUrl = "${haBaseUrl}";
+            
+            // Override fetch to include auth token for API calls
+            // API calls to /api/* will go through our proxy routes
+            const originalFetch = window.fetch;
+            window.fetch = function(url, options = {}) {
+              const urlStr = typeof url === 'string' ? url : url.toString();
+              // Add auth header for API calls (they'll be proxied by our server)
+              if (urlStr.startsWith('/api/') || urlStr.includes('/api/')) {
+                options = options || {};
+                options.headers = options.headers || {};
+                options.headers['Authorization'] = 'Bearer ${haToken}';
+              }
+              return originalFetch(url, options);
+            };
+            
+            // Override WebSocket to include auth for Home Assistant WebSocket
+            const originalWebSocket = window.WebSocket;
+            window.WebSocket = function(url, protocols) {
+              if (typeof url === 'string' && url.includes('/api/websocket')) {
+                // Home Assistant WebSocket requires auth via first message
+                const ws = new originalWebSocket(url, protocols);
+                ws.addEventListener('open', function() {
+                  ws.send(JSON.stringify({ type: 'auth', access_token: '${haToken}' }));
+                });
+                return ws;
+              }
+              return new originalWebSocket(url, protocols);
+            };
+          </script>`
+      );
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Frame-Options", "ALLOWALL");
+    res.setHeader("Content-Security-Policy", "frame-ancestors *");
+    res.send(html);
+  }
+
+  // Proxy route for Home Assistant dashboard
+  // This allows embedding the full HA dashboard via iframe
+  // Home Assistant frontend is a SPA that requires proper authentication
+  // This route proxies the dashboard HTML and injects authentication
+  app.get("/api/ha/dashboard", async (req, res) => {
+    const view = req.query.view as string || "default_view";
+    
+    if (!haBaseUrl || !haToken) {
+      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
+    }
+
+    try {
+      // Get the dashboard URL - try the lovelace view first
+      const dashboardUrl = `${haBaseUrl}/lovelace/${encodeURIComponent(view)}`;
+      
+      // Fetch the dashboard HTML from Home Assistant
+      const response = await fetch(dashboardUrl, {
+        headers: {
+          Authorization: `Bearer ${haToken}`,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      });
+
+      if (!response.ok) {
+        // If lovelace view fails, try the root dashboard
+        const rootResponse = await fetch(`${haBaseUrl}/`, {
+          headers: {
+            Authorization: `Bearer ${haToken}`,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+        });
+
+        if (!rootResponse.ok) {
+          return res.status(rootResponse.status).json({ 
+            error: `Failed to load dashboard: ${rootResponse.statusText}` 
+          });
+        }
+
+        const html = await rootResponse.text();
+        return serveProxiedDashboard(html, res);
+      }
+
+      const html = await response.text();
+      return serveProxiedDashboard(html, res);
+    } catch (err: any) {
+      console.error("[HA Dashboard] Error:", err);
+      res.status(500).json({ error: `Failed to proxy dashboard: ${err?.message}` });
+    }
   });
   // Companies
   app.get("/api/companies", async (_req, res) => {
