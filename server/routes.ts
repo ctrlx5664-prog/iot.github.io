@@ -505,18 +505,106 @@ export async function registerRoutes(
     });
   });
 
+  // Catch-all routes for Home Assistant static assets
+  // These routes intercept requests to HA static resources and proxy them directly
+  // This prevents 404 errors when the iframe tries to load resources directly
+  const haStaticPaths = ['static', 'frontend_latest', 'local', 'homeassistant', 'hacsfiles'];
+  
+  haStaticPaths.forEach(staticPath => {
+    app.get(`/${staticPath}/*`, async (req, res) => {
+      const path = req.params[0] || "";
+      const fullPath = `${staticPath}/${path}`;
+      const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+      
+      console.log("[HA Static] Intercepted request:", {
+        staticPath,
+        path,
+        fullPath,
+        originalUrl: req.originalUrl,
+        url: req.url,
+      });
+      
+      if (!haBaseUrl || !haToken) {
+        console.error("[HA Static] Configuration missing");
+        return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
+      }
+
+      try {
+        const targetUrl = `${haBaseUrl}/${fullPath}${queryString}`;
+        console.log("[HA Static] Proxying to HA:", targetUrl);
+        
+        const response = await fetch(targetUrl, {
+          headers: {
+            Authorization: `Bearer ${haToken}`,
+            "User-Agent": "Mozilla/5.0",
+          },
+        });
+
+        console.log("[HA Static] Response:", {
+          status: response.status,
+          contentType: response.headers.get("content-type"),
+        });
+
+        if (!response.ok) {
+          console.warn("[HA Static] Failed:", {
+            status: response.status,
+            targetUrl,
+          });
+          return res.status(response.status).end();
+        }
+
+        // Forward content type and other headers
+        const contentType = response.headers.get("content-type");
+        if (contentType) {
+          res.setHeader("Content-Type", contentType);
+        }
+        
+        const cacheControl = response.headers.get("cache-control");
+        if (cacheControl) {
+          res.setHeader("Cache-Control", cacheControl);
+        }
+
+        // Stream the response
+        const buffer = await response.arrayBuffer();
+        console.log("[HA Static] Successfully proxied:", {
+          fullPath,
+          size: buffer.byteLength,
+        });
+        res.send(Buffer.from(buffer));
+      } catch (err: any) {
+        console.error("[HA Static] Error:", {
+          fullPath,
+          error: err?.message,
+        });
+        res.status(500).end();
+      }
+    });
+  });
+
   // Proxy route for Home Assistant static assets (JS, CSS, fonts, etc.)
   // This prevents CORS errors by proxying all resources through our server
   app.get("/api/ha/proxy/*", async (req, res) => {
     const path = req.params[0] || "";
     const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
     
+    console.log("[HA Proxy] Request received:", {
+      path,
+      queryString,
+      fullUrl: req.url,
+      userAgent: req.headers['user-agent'],
+    });
+    
     if (!haBaseUrl || !haToken) {
+      console.error("[HA Proxy] Configuration missing:", {
+        hasBaseUrl: !!haBaseUrl,
+        hasToken: !!haToken,
+      });
       return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
     }
 
     try {
       const targetUrl = `${haBaseUrl}/${path}${queryString}`;
+      console.log("[HA Proxy] Fetching from HA:", targetUrl);
       
       const response = await fetch(targetUrl, {
         headers: {
@@ -525,7 +613,21 @@ export async function registerRoutes(
         },
       });
 
+      console.log("[HA Proxy] Response status:", {
+        path,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get("content-type"),
+        contentLength: response.headers.get("content-length"),
+      });
+
       if (!response.ok) {
+        console.warn("[HA Proxy] Failed to fetch resource:", {
+          path,
+          status: response.status,
+          statusText: response.statusText,
+          targetUrl,
+        });
         return res.status(response.status).end();
       }
 
@@ -543,9 +645,19 @@ export async function registerRoutes(
 
       // Stream the response
       const buffer = await response.arrayBuffer();
+      console.log("[HA Proxy] Successfully proxied resource:", {
+        path,
+        size: buffer.byteLength,
+        contentType,
+      });
       res.send(Buffer.from(buffer));
     } catch (err: any) {
-      console.error("[HA Proxy] Error proxying resource:", path, err?.message);
+      console.error("[HA Proxy] Error proxying resource:", {
+        path,
+        targetUrl: `${haBaseUrl}/${path}${queryString}`,
+        error: err?.message,
+        stack: err?.stack,
+      });
       res.status(500).end();
     }
   });
@@ -556,6 +668,10 @@ export async function registerRoutes(
     const wsProtocol = haBaseUrl.startsWith("https") ? "wss" : "ws";
     const wsBaseUrl = haBaseUrl.replace(/^https?:/, wsProtocol);
     
+    let hrefReplacements = 0;
+    let srcReplacements = 0;
+    let urlReplacements = 0;
+    
     // Modify the HTML to work in an iframe and inject authentication
     // Replace asset paths to go through our proxy to avoid CORS issues
     html = html
@@ -563,6 +679,7 @@ export async function registerRoutes(
       .replace(/href="\/([^"]+)"/g, (match, path) => {
         // Skip API paths and WebSocket - they have their own handlers
         if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+          hrefReplacements++;
           return `href="/api/ha/proxy/${path}"`;
         }
         return match; // Keep original for API paths
@@ -570,12 +687,14 @@ export async function registerRoutes(
       .replace(/src="\/([^"]+)"/g, (match, path) => {
         // Proxy static assets through our server
         if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+          srcReplacements++;
           return `src="/api/ha/proxy/${path}"`;
         }
         return match; // Keep original for API paths
       })
       .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
         if (path.startsWith('static/') || path.startsWith('frontend_latest/') || path.startsWith('local/') || path.startsWith('homeassistant/') || path.startsWith('hacsfiles/')) {
+          urlReplacements++;
           return `url('/api/ha/proxy/${path}')`;
         }
         return match;
@@ -623,6 +742,14 @@ export async function registerRoutes(
           </script>`
       );
 
+    console.log("[HA Dashboard] HTML processing complete:", {
+      htmlLength: html.length,
+      hrefReplacements,
+      srcReplacements,
+      urlReplacements,
+      totalReplacements: hrefReplacements + srcReplacements + urlReplacements,
+    });
+
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("X-Frame-Options", "ALLOWALL");
     res.setHeader("Content-Security-Policy", "frame-ancestors *");
@@ -637,7 +764,19 @@ export async function registerRoutes(
     const dashboard = req.query.dashboard as string || "lovelace"; // Default to "lovelace" or custom dashboard name
     const view = req.query.view as string || "default_view";
     
+    console.log("[HA Dashboard] Request received:", {
+      dashboard,
+      view,
+      query: req.query,
+      userAgent: req.headers['user-agent'],
+    });
+    
     if (!haBaseUrl || !haToken) {
+      console.error("[HA Dashboard] Configuration missing:", {
+        hasBaseUrl: !!haBaseUrl,
+        hasToken: !!haToken,
+        baseUrl: haBaseUrl || "(not set)",
+      });
       return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
     }
 
@@ -654,7 +793,11 @@ export async function registerRoutes(
         dashboardUrl = `${haBaseUrl}/${dashboard}/${encodeURIComponent(view)}`;
       }
       
-      console.log("[HA Dashboard] Attempting to load:", dashboardUrl);
+      console.log("[HA Dashboard] Attempting to load:", {
+        dashboardUrl,
+        dashboard,
+        view,
+      });
       
       // Fetch the dashboard HTML from Home Assistant
       const response = await fetch(dashboardUrl, {
@@ -665,9 +808,20 @@ export async function registerRoutes(
         },
       });
 
+      console.log("[HA Dashboard] Response from HA:", {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get("content-type"),
+        contentLength: response.headers.get("content-length"),
+        url: dashboardUrl,
+      });
+
       if (!response.ok) {
         // If specific dashboard fails, try the root dashboard
-        console.log("[HA Dashboard] Failed to load specific dashboard, trying root");
+        console.log("[HA Dashboard] Failed to load specific dashboard, trying root:", {
+          originalStatus: response.status,
+          originalStatusText: response.statusText,
+        });
         const rootResponse = await fetch(`${haBaseUrl}/`, {
           headers: {
             Authorization: `Bearer ${haToken}`,
@@ -676,7 +830,17 @@ export async function registerRoutes(
           },
         });
 
+        console.log("[HA Dashboard] Root response:", {
+          status: rootResponse.status,
+          statusText: rootResponse.statusText,
+        });
+
         if (!rootResponse.ok) {
+          console.error("[HA Dashboard] Both dashboard and root failed:", {
+            dashboardUrl,
+            dashboardStatus: response.status,
+            rootStatus: rootResponse.status,
+          });
           return res.status(rootResponse.status).json({ 
             error: `Failed to load dashboard: ${rootResponse.statusText}`,
             attemptedUrl: dashboardUrl
@@ -684,13 +848,20 @@ export async function registerRoutes(
         }
 
         const html = await rootResponse.text();
+        console.log("[HA Dashboard] Successfully loaded root dashboard, HTML length:", html.length);
         return serveProxiedDashboard(html, res);
       }
 
       const html = await response.text();
+      console.log("[HA Dashboard] Successfully loaded dashboard, HTML length:", html.length);
       return serveProxiedDashboard(html, res);
     } catch (err: any) {
-      console.error("[HA Dashboard] Error:", err);
+      console.error("[HA Dashboard] Error:", {
+        error: err?.message,
+        stack: err?.stack,
+        dashboard,
+        view,
+      });
       res.status(500).json({ error: `Failed to proxy dashboard: ${err?.message}` });
     }
   });
