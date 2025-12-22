@@ -538,20 +538,28 @@ export async function registerRoutes(
     }
 
     try {
-      const targetUrl = `${haBaseUrl}/${path}${queryString}`;
+      // Ensure path doesn't have leading slash to avoid double slashes
+      const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+      const targetUrl = `${haBaseUrl}/${cleanPath}${queryString}`;
       console.log("[HA Static] Proxying to HA:", {
         method: req.method,
+        path,
+        cleanPath,
         targetUrl,
         hasBody: !!req.body,
       });
       
       // Prepare fetch options
+      // Forward important headers from the original request
       const fetchOptions: RequestInit = {
         method: req.method,
         headers: {
           Authorization: `Bearer ${haToken}`,
           "User-Agent": req.headers['user-agent'] || "Mozilla/5.0",
           Accept: req.headers.accept || "*/*",
+          "Accept-Language": req.headers['accept-language'] || "en-US,en;q=0.9",
+          "Accept-Encoding": req.headers['accept-encoding'] || "gzip, deflate, br",
+          "Referer": req.headers.referer || haBaseUrl,
         },
       };
 
@@ -579,14 +587,32 @@ export async function registerRoutes(
         statusText: response.statusText,
         contentType: response.headers.get("content-type"),
         path,
+        cleanPath,
       });
 
       if (!response.ok) {
+        // Try to get error body for debugging
+        let errorBody = '';
+        try {
+          const text = await response.text();
+          errorBody = text.substring(0, 200); // First 200 chars
+        } catch (e) {
+          // Ignore
+        }
+        
         console.warn("[HA Static] Failed:", {
           method: req.method,
           status: response.status,
           statusText: response.statusText,
           targetUrl,
+          path,
+          cleanPath,
+          errorBody: errorBody || '(no body)',
+        });
+        
+        // Forward error status and headers
+        response.headers.forEach((value, key) => {
+          res.setHeader(key, value);
         });
         return res.status(response.status).end();
       }
@@ -781,12 +807,18 @@ export async function registerRoutes(
           <script>
             // CRITICAL: Run immediately, before DOM is ready
             (function() {
+              console.log('[HA Proxy] Injection script loaded and executing');
               // Home Assistant authentication configuration
               window.hassTokens = { access_token: "${haToken}" };
               window.hassUrl = "${haBaseUrl}";
+              console.log('[HA Proxy] Configuration set:', {
+                hasToken: !!window.hassTokens.access_token,
+                hassUrl: window.hassUrl
+              });
             
             // Helper function to rewrite URLs - use proxy for static assets, keep API calls relative
             function rewriteUrl(url) {
+              const originalUrl = url;
               if (!url) return url;
               if (typeof url !== 'string') url = url.toString();
               
@@ -797,11 +829,13 @@ export async function registerRoutes(
               
               // Already proxied URLs - keep them
               if (url.startsWith('/api/ha/static/')) {
+                console.log('[HA Proxy] URL already proxied:', url);
                 return url;
               }
               
               // API calls - keep relative, will be handled by fetch override
               if (url.startsWith('/api/') && !url.startsWith('/api/ha/')) {
+                console.log('[HA Proxy] API call, keeping relative:', url);
                 return url;
               }
               
@@ -809,7 +843,9 @@ export async function registerRoutes(
               const haBaseUrlValue = "${haBaseUrl}";
               if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
                 const path = url.substring(haBaseUrlValue.length);
-                return '/api/ha/static' + (path.startsWith('/') ? path : '/' + path);
+                const rewritten = '/api/ha/static' + (path.startsWith('/') ? path : '/' + path);
+                console.log('[HA Proxy] Rewriting HA absolute URL:', url, '->', rewritten);
+                return rewritten;
               }
               
               // Absolute URLs pointing to current origin (Netlify) - convert to proxy
@@ -819,8 +855,11 @@ export async function registerRoutes(
                 const path = url.substring(currentOrigin.length);
                 // If it's not already proxied and not an API call, proxy it
                 if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
-                  return '/api/ha/static' + path;
+                  const rewritten = '/api/ha/static' + path;
+                  console.log('[HA Proxy] Rewriting current origin URL:', url, '->', rewritten);
+                  return rewritten;
                 }
+                console.log('[HA Proxy] Current origin URL already proxied or API:', url);
                 return path; // Already proxied or API call
               }
               
@@ -828,8 +867,11 @@ export async function registerRoutes(
               if (url.startsWith('/')) {
                 // Check if it's a static asset path (not API)
                 if (!url.startsWith('/api/')) {
-                  return '/api/ha/static' + url;
+                  const rewritten = '/api/ha/static' + url;
+                  console.log('[HA Proxy] Rewriting relative URL:', url, '->', rewritten);
+                  return rewritten;
                 }
+                console.log('[HA Proxy] Relative API call, keeping as-is:', url);
                 return url; // API calls stay as-is
               }
               
@@ -839,13 +881,15 @@ export async function registerRoutes(
                 // If it looks like a file path (has extension), proxy it
                 const hasExtension = /\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(url);
                 if (hasExtension) {
-                  return '/api/ha/static/' + url;
+                  const rewritten = '/api/ha/static/' + url;
+                  console.log('[HA Proxy] Rewriting relative file URL:', url, '->', rewritten);
+                  return rewritten;
                 }
               }
               
               // Log unhandled URLs for debugging
               if (url && !url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('#')) {
-                console.warn('[HA Proxy] Unhandled URL:', url);
+                console.warn('[HA Proxy] Unhandled URL (not rewritten):', url, 'original:', originalUrl);
               }
               
               return url;
@@ -855,11 +899,14 @@ export async function registerRoutes(
             const originalFetch = window.fetch;
             window.fetch = function(url, options = {}) {
               const urlStr = typeof url === 'string' ? url : url.toString();
+              console.log('[HA Proxy] Fetch called with URL:', urlStr, 'method:', options?.method || 'GET');
               const rewrittenUrl = rewriteUrl(urlStr);
               
               // Log URL rewrites for debugging
               if (urlStr !== rewrittenUrl) {
-                console.log('[HA Proxy] Rewriting fetch URL:', urlStr, '->', rewrittenUrl);
+                console.log('[HA Proxy] Fetch URL rewritten:', urlStr, '->', rewrittenUrl);
+              } else {
+                console.log('[HA Proxy] Fetch URL unchanged:', urlStr);
               }
               
               // If it's an API call (relative /api/ but not /api/ha/static/), proxy it through our server
@@ -904,6 +951,7 @@ export async function registerRoutes(
             XMLHttpRequest.prototype.open = function(method, url, ...rest) {
               // Store original URL for later use
               this._haOriginalUrl = url;
+              console.log('[HA Proxy] XHR.open called:', method, url);
               
               // Rewrite URL using our helper function
               let rewrittenUrl = rewriteUrl(url);
@@ -911,14 +959,18 @@ export async function registerRoutes(
               // If it's a proxied static asset, convert to absolute URL
               if (rewrittenUrl.startsWith('/api/ha/static/')) {
                 rewrittenUrl = window.location.origin + rewrittenUrl;
+                console.log('[HA Proxy] XHR proxied static asset, absolute URL:', rewrittenUrl);
               } else if (rewrittenUrl.startsWith('/api/') && !rewrittenUrl.startsWith('/api/ha/static/')) {
                 // API calls - convert to absolute URL through our proxy
                 rewrittenUrl = window.location.origin + rewrittenUrl;
+                console.log('[HA Proxy] XHR API call, absolute URL:', rewrittenUrl);
               }
               
               // Log URL rewrites for debugging
               if (this._haOriginalUrl !== rewrittenUrl) {
-                console.log('[HA Proxy] Rewriting XHR URL:', this._haOriginalUrl, '->', rewrittenUrl);
+                console.log('[HA Proxy] XHR URL rewritten:', this._haOriginalUrl, '->', rewrittenUrl);
+              } else {
+                console.log('[HA Proxy] XHR URL unchanged:', url);
               }
               
               return originalXHROpen.call(this, method, rewrittenUrl, ...rest);
@@ -954,11 +1006,18 @@ export async function registerRoutes(
               const element = originalCreateElement.call(this, tagName, options);
               
               if (tagName === 'script' || tagName === 'link') {
+                console.log('[HA Proxy] createElement called for:', tagName);
                 // Intercept setAttribute
                 const originalSetAttribute = element.setAttribute;
                 element.setAttribute = function(name, value) {
                   if ((name === 'src' || name === 'href') && typeof value === 'string') {
+                    const originalValue = value;
                     value = rewriteUrl(value);
+                    if (originalValue !== value) {
+                      console.log('[HA Proxy] setAttribute rewritten:', name, originalValue, '->', value);
+                    } else {
+                      console.log('[HA Proxy] setAttribute unchanged:', name, value);
+                    }
                   }
                   return originalSetAttribute.call(this, name, value);
                 };
@@ -969,7 +1028,13 @@ export async function registerRoutes(
                   Object.defineProperty(element, 'src', {
                     set: function(value) {
                       if (typeof value === 'string') {
+                        const originalValue = value;
                         srcValue = rewriteUrl(value);
+                        if (originalValue !== srcValue) {
+                          console.log('[HA Proxy] Script src property rewritten:', originalValue, '->', srcValue);
+                        } else {
+                          console.log('[HA Proxy] Script src property unchanged:', value);
+                        }
                         this.setAttribute('src', srcValue);
                       } else {
                         srcValue = value;
@@ -986,7 +1051,13 @@ export async function registerRoutes(
                   Object.defineProperty(element, 'href', {
                     set: function(value) {
                       if (typeof value === 'string') {
+                        const originalValue = value;
                         hrefValue = rewriteUrl(value);
+                        if (originalValue !== hrefValue) {
+                          console.log('[HA Proxy] Link href property rewritten:', originalValue, '->', hrefValue);
+                        } else {
+                          console.log('[HA Proxy] Link href property unchanged:', value);
+                        }
                         this.setAttribute('href', hrefValue);
                       } else {
                         hrefValue = value;
@@ -1012,24 +1083,54 @@ export async function registerRoutes(
             }
             
             function setupMutationObserver() {
+              console.log('[HA Proxy] Setting up MutationObserver');
               const observer = new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
                   mutation.addedNodes.forEach(function(node) {
                     if (node.nodeType === 1) { // Element node
                       // Handle script tags
                       if (node.tagName === 'SCRIPT' && node.src) {
-                        node.src = rewriteUrl(node.src);
+                        const originalSrc = node.src;
+                        const rewritten = rewriteUrl(node.src);
+                        if (originalSrc !== rewritten) {
+                          node.src = rewritten;
+                          console.log('[HA Proxy] MutationObserver rewrote script:', originalSrc, '->', rewritten);
+                        } else {
+                          console.log('[HA Proxy] MutationObserver script unchanged:', originalSrc);
+                        }
                       }
                       // Handle link tags
                       if (node.tagName === 'LINK' && node.href) {
-                        node.href = rewriteUrl(node.href);
+                        const originalHref = node.href;
+                        const rewritten = rewriteUrl(node.href);
+                        if (originalHref !== rewritten) {
+                          node.href = rewritten;
+                          console.log('[HA Proxy] MutationObserver rewrote link:', originalHref, '->', rewritten);
+                        } else {
+                          console.log('[HA Proxy] MutationObserver link unchanged:', originalHref);
+                        }
                       }
                       // Handle nested scripts/links
                       const scripts = node.querySelectorAll && node.querySelectorAll('script[src], link[href]');
-                      if (scripts) {
+                      if (scripts && scripts.length > 0) {
+                        console.log('[HA Proxy] MutationObserver found', scripts.length, 'nested scripts/links');
                         scripts.forEach(function(el) {
-                          if (el.src) el.src = rewriteUrl(el.src);
-                          if (el.href) el.href = rewriteUrl(el.href);
+                          if (el.src) {
+                            const originalSrc = el.src;
+                            const rewritten = rewriteUrl(el.src);
+                            if (originalSrc !== rewritten) {
+                              el.src = rewritten;
+                              console.log('[HA Proxy] MutationObserver rewrote nested script:', originalSrc, '->', rewritten);
+                            }
+                          }
+                          if (el.href) {
+                            const originalHref = el.href;
+                            const rewritten = rewriteUrl(el.href);
+                            if (originalHref !== rewritten) {
+                              el.href = rewritten;
+                              console.log('[HA Proxy] MutationObserver rewrote nested link:', originalHref, '->', rewritten);
+                            }
+                          }
                         });
                       }
                     }
@@ -1039,6 +1140,7 @@ export async function registerRoutes(
               
               observer.observe(document.head, { childList: true, subtree: true });
               observer.observe(document.body, { childList: true, subtree: true });
+              console.log('[HA Proxy] MutationObserver setup complete');
             }
             
             // Override WebSocket to point directly to HA and include auth
