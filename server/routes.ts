@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { storage } from "./storage";
 import {
   insertCompanySchema,
@@ -509,17 +509,27 @@ export async function registerRoutes(
     });
   });
 
-  // Simplified route for Home Assistant static assets via /api/ha/static/*
-  // Accepts any path and proxies directly to HA
-  // Format: /api/ha/static/frontend_latest/core.js -> HA/frontend_latest/core.js
-  app.get("/api/ha/static/*", async (req, res) => {
-    const path = req.params[0] || "";
+  // Helper function to handle HA static asset proxying
+  async function handleHaStaticProxy(req: Request, res: Response) {
+    // Handle CORS preflight requests
+    if (req.method === "OPTIONS") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      return res.status(200).end();
+    }
+
+    // Extract the path after /api/ha/static
+    // When using app.get("/api/ha/static/*", ...), Express captures * as req.params[0]
+    const path = (req.params as any)[0] || "";
     const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
     
     console.log("[HA Static] Request received:", {
+      method: req.method,
       path,
       originalUrl: req.originalUrl,
       url: req.url,
+      hasBody: !!req.body,
     });
     
     if (!haBaseUrl || !haToken) {
@@ -529,17 +539,42 @@ export async function registerRoutes(
 
     try {
       const targetUrl = `${haBaseUrl}/${path}${queryString}`;
-      console.log("[HA Static] Proxying to HA:", targetUrl);
+      console.log("[HA Static] Proxying to HA:", {
+        method: req.method,
+        targetUrl,
+        hasBody: !!req.body,
+      });
       
-      const response = await fetch(targetUrl, {
+      // Prepare fetch options
+      const fetchOptions: RequestInit = {
+        method: req.method,
         headers: {
           Authorization: `Bearer ${haToken}`,
           "User-Agent": req.headers['user-agent'] || "Mozilla/5.0",
           Accept: req.headers.accept || "*/*",
         },
-      });
+      };
+
+      // Forward request body for POST, PUT, PATCH, etc.
+      if (req.body && (req.method === "POST" || req.method === "PUT" || req.method === "PATCH")) {
+        const contentType = req.headers['content-type'] || 'application/json';
+        fetchOptions.headers = {
+          ...fetchOptions.headers,
+          'Content-Type': contentType,
+        };
+        
+        // If body is already a string/buffer, use it directly, otherwise stringify
+        if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
+          fetchOptions.body = req.body;
+        } else {
+          fetchOptions.body = JSON.stringify(req.body);
+        }
+      }
+
+      const response = await fetch(targetUrl, fetchOptions);
 
       console.log("[HA Static] Response:", {
+        method: req.method,
         status: response.status,
         statusText: response.statusText,
         contentType: response.headers.get("content-type"),
@@ -548,6 +583,7 @@ export async function registerRoutes(
 
       if (!response.ok) {
         console.warn("[HA Static] Failed:", {
+          method: req.method,
           status: response.status,
           statusText: response.statusText,
           targetUrl,
@@ -568,12 +604,13 @@ export async function registerRoutes(
       
       // Forward CORS headers to allow iframe access
       res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
       // Stream the response
       const buffer = await response.arrayBuffer();
       console.log("[HA Static] Successfully proxied:", {
+        method: req.method,
         path,
         size: buffer.byteLength,
         contentType,
@@ -581,12 +618,25 @@ export async function registerRoutes(
       res.send(Buffer.from(buffer));
     } catch (err: any) {
       console.error("[HA Static] Error:", {
+        method: req.method,
         path,
         error: err?.message,
       });
       res.status(500).end();
     }
-  });
+  }
+
+  // Simplified route for Home Assistant static assets via /api/ha/static/*
+  // Accepts any path and proxies directly to HA
+  // Format: /api/ha/static/frontend_latest/core.js -> HA/frontend_latest/core.js
+  // Handles all HTTP methods (GET, POST, etc.) to support endpoints like cdn-cgi/rum
+  app.get("/api/ha/static/*", handleHaStaticProxy);
+  app.post("/api/ha/static/*", handleHaStaticProxy);
+  app.delete("/api/ha/static/*", handleHaStaticProxy);
+  // Use app.use for other methods (PUT, PATCH, OPTIONS) that may not be in Express type
+  (app as any).put("/api/ha/static/*", handleHaStaticProxy);
+  (app as any).patch("/api/ha/static/*", handleHaStaticProxy);
+  (app as any).options("/api/ha/static/*", handleHaStaticProxy);
 
   // Proxy route for Home Assistant static assets (JS, CSS, fonts, etc.)
   // This prevents CORS errors by proxying all resources through our server
