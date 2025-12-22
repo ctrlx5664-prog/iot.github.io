@@ -680,6 +680,7 @@ export async function registerRoutes(
     let hrefReplacements = 0;
     let srcReplacements = 0;
     let urlReplacements = 0;
+    const replacedUrls: string[] = [];
     
     // Modify the HTML to work in an iframe and inject authentication
     // Replace asset paths to go through our proxy to avoid CORS issues
@@ -689,59 +690,89 @@ export async function registerRoutes(
       .replace(/href="\/([^"]+)"/g, (match, path) => {
         // Skip API paths and WebSocket - they have their own handlers
         if (path.startsWith('static/')) {
+          const newUrl = `/api/ha/static/static/${path.substring(7)}`;
           hrefReplacements++;
-          return `href="/api/ha/static/static/${path.substring(7)}"`;
+          replacedUrls.push(`${match} -> href="${newUrl}"`);
+          return `href="${newUrl}"`;
         } else if (path.startsWith('frontend_latest/')) {
+          const newUrl = `/api/ha/static/frontend_latest/${path.substring(16)}`;
           hrefReplacements++;
-          return `href="/api/ha/static/frontend_latest/${path.substring(16)}"`;
+          replacedUrls.push(`${match} -> href="${newUrl}"`);
+          return `href="${newUrl}"`;
         } else if (path.startsWith('local/')) {
+          const newUrl = `/api/ha/static/local/${path.substring(6)}`;
           hrefReplacements++;
-          return `href="/api/ha/static/local/${path.substring(6)}"`;
+          replacedUrls.push(`${match} -> href="${newUrl}"`);
+          return `href="${newUrl}"`;
         } else if (path.startsWith('homeassistant/')) {
+          const newUrl = `/api/ha/static/homeassistant/${path.substring(14)}`;
           hrefReplacements++;
-          return `href="/api/ha/static/homeassistant/${path.substring(14)}"`;
+          replacedUrls.push(`${match} -> href="${newUrl}"`);
+          return `href="${newUrl}"`;
         } else if (path.startsWith('hacsfiles/')) {
+          const newUrl = `/api/ha/static/hacsfiles/${path.substring(11)}`;
           hrefReplacements++;
-          return `href="/api/ha/static/hacsfiles/${path.substring(11)}"`;
+          replacedUrls.push(`${match} -> href="${newUrl}"`);
+          return `href="${newUrl}"`;
         }
         return match; // Keep original for API paths
       })
       .replace(/src="\/([^"]+)"/g, (match, path) => {
         // Proxy static assets through our server
         if (path.startsWith('static/')) {
+          const newUrl = `/api/ha/static/static/${path.substring(7)}`;
           srcReplacements++;
-          return `src="/api/ha/static/static/${path.substring(7)}"`;
+          replacedUrls.push(`${match} -> src="${newUrl}"`);
+          return `src="${newUrl}"`;
         } else if (path.startsWith('frontend_latest/')) {
+          const newUrl = `/api/ha/static/frontend_latest/${path.substring(16)}`;
           srcReplacements++;
-          return `src="/api/ha/static/frontend_latest/${path.substring(16)}"`;
+          replacedUrls.push(`${match} -> src="${newUrl}"`);
+          return `src="${newUrl}"`;
         } else if (path.startsWith('local/')) {
+          const newUrl = `/api/ha/static/local/${path.substring(6)}`;
           srcReplacements++;
-          return `src="/api/ha/static/local/${path.substring(6)}"`;
+          replacedUrls.push(`${match} -> src="${newUrl}"`);
+          return `src="${newUrl}"`;
         } else if (path.startsWith('homeassistant/')) {
+          const newUrl = `/api/ha/static/homeassistant/${path.substring(14)}`;
           srcReplacements++;
-          return `src="/api/ha/static/homeassistant/${path.substring(14)}"`;
+          replacedUrls.push(`${match} -> src="${newUrl}"`);
+          return `src="${newUrl}"`;
         } else if (path.startsWith('hacsfiles/')) {
+          const newUrl = `/api/ha/static/hacsfiles/${path.substring(11)}`;
           srcReplacements++;
-          return `src="/api/ha/static/hacsfiles/${path.substring(11)}"`;
+          replacedUrls.push(`${match} -> src="${newUrl}"`);
+          return `src="${newUrl}"`;
         }
         return match; // Keep original for API paths
       })
       .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
         if (path.startsWith('static/')) {
+          const newUrl = `/api/ha/static/static/${path.substring(7)}`;
           urlReplacements++;
-          return `url('/api/ha/static/static/${path.substring(7)}')`;
+          replacedUrls.push(`${match} -> url('${newUrl}')`);
+          return `url('${newUrl}')`;
         } else if (path.startsWith('frontend_latest/')) {
+          const newUrl = `/api/ha/static/frontend_latest/${path.substring(16)}`;
           urlReplacements++;
-          return `url('/api/ha/static/frontend_latest/${path.substring(16)}')`;
+          replacedUrls.push(`${match} -> url('${newUrl}')`);
+          return `url('${newUrl}')`;
         } else if (path.startsWith('local/')) {
+          const newUrl = `/api/ha/static/local/${path.substring(6)}`;
           urlReplacements++;
-          return `url('/api/ha/static/local/${path.substring(6)}')`;
+          replacedUrls.push(`${match} -> url('${newUrl}')`);
+          return `url('${newUrl}')`;
         } else if (path.startsWith('homeassistant/')) {
+          const newUrl = `/api/ha/static/homeassistant/${path.substring(14)}`;
           urlReplacements++;
-          return `url('/api/ha/static/homeassistant/${path.substring(14)}')`;
+          replacedUrls.push(`${match} -> url('${newUrl}')`);
+          return `url('${newUrl}')`;
         } else if (path.startsWith('hacsfiles/')) {
+          const newUrl = `/api/ha/static/hacsfiles/${path.substring(11)}`;
           urlReplacements++;
-          return `url('/api/ha/static/hacsfiles/${path.substring(11)}')`;
+          replacedUrls.push(`${match} -> url('${newUrl}')`);
+          return `url('${newUrl}')`;
         }
         return match;
       })
@@ -794,6 +825,7 @@ export async function registerRoutes(
       srcReplacements,
       urlReplacements,
       totalReplacements: hrefReplacements + srcReplacements + urlReplacements,
+      replacedUrls: replacedUrls.slice(0, 10), // Log first 10 replacements
     });
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
