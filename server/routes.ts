@@ -222,7 +222,13 @@ export async function registerRoutes(
 
   // Protect all other /api routes
   app.use("/api", (req: any, res: any, next: any) => {
+    // Allow auth routes without authentication
     if (req.path.startsWith("/auth")) {
+      return next();
+    }
+    // Allow Home Assistant routes without user authentication
+    // (they use HA token configured on server)
+    if (req.path.startsWith("/ha") || req.path.startsWith("/states") || req.path.startsWith("/services") || req.path.startsWith("/websocket")) {
       return next();
     }
     const token = getBearerToken(req);

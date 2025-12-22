@@ -1,4 +1,4 @@
-import { Building2, Lightbulb, Monitor, Home, Plus, Users } from "lucide-react";
+import { Building2, Lightbulb, Monitor, Home, Plus, Users, LayoutDashboard } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -98,6 +98,17 @@ export function AppSidebar() {
                   <Link href="/organizations" data-testid="link-organizations">
                     <Users className="w-4 h-4" />
                     <span>Organizations</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/ha"}
+                >
+                  <Link href="/ha" data-testid="link-home-assistant">
+                    <LayoutDashboard className="w-4 h-4" />
+                    <span>Home Assistant</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
