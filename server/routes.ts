@@ -791,13 +791,22 @@ export async function registerRoutes(
             // Helper function to rewrite URLs to go through proxy
             const haBaseUrlValue = "${haBaseUrl}";
             function rewriteUrl(url) {
+              if (!url) return url;
               if (typeof url !== 'string') url = url.toString();
+              
+              // Skip data URLs and blob URLs
+              if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('#')) {
+                return url;
+              }
               
               // Already proxied or external URL
               if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('//')) {
                 // If it's pointing to HA base URL, rewrite to use /ha/* proxy
                 if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
                   const path = url.substring(haBaseUrlValue.length);
+                  if (!path.startsWith('/')) {
+                    return '/ha/' + path;
+                  }
                   return '/ha' + path;
                 }
                 return url;
@@ -822,6 +831,13 @@ export async function registerRoutes(
                 return '/ha' + url;
               }
               
+              // Relative URLs without leading slash - these should be resolved relative to current location
+              // For now, assume they're static assets and try to proxy them
+              if (url.includes('.')) {
+                // Likely a file (has extension), try to proxy through /ha
+                return '/ha/' + url;
+              }
+              
               return url;
             }
             
@@ -831,6 +847,11 @@ export async function registerRoutes(
               const urlStr = typeof url === 'string' ? url : url.toString();
               const rewrittenUrl = rewriteUrl(urlStr);
               
+              // Log URL rewrites for debugging
+              if (urlStr !== rewrittenUrl) {
+                console.log('[HA Proxy] Rewriting fetch URL:', urlStr, '->', rewrittenUrl);
+              }
+              
               // Add auth header for API calls
               if (rewrittenUrl.startsWith('/api/') || rewrittenUrl.includes('/api/')) {
                 options = options || {};
@@ -838,13 +859,22 @@ export async function registerRoutes(
                 options.headers['Authorization'] = 'Bearer ${haToken}';
               }
               
-              return originalFetch(rewrittenUrl, options);
+              return originalFetch(rewrittenUrl, options).catch(function(error) {
+                console.error('[HA Proxy] Fetch error for:', rewrittenUrl, error);
+                throw error;
+              });
             };
             
             // Override XMLHttpRequest to rewrite URLs
             const originalXHROpen = XMLHttpRequest.prototype.open;
             XMLHttpRequest.prototype.open = function(method, url, ...rest) {
               const rewrittenUrl = rewriteUrl(url);
+              
+              // Log URL rewrites for debugging
+              if (url !== rewrittenUrl) {
+                console.log('[HA Proxy] Rewriting XHR URL:', url, '->', rewrittenUrl);
+              }
+              
               return originalXHROpen.call(this, method, rewrittenUrl, ...rest);
             };
             
@@ -854,6 +884,7 @@ export async function registerRoutes(
               const element = originalCreateElement.call(this, tagName, options);
               
               if (tagName === 'script' || tagName === 'link') {
+                // Intercept setAttribute
                 const originalSetAttribute = element.setAttribute;
                 element.setAttribute = function(name, value) {
                   if ((name === 'src' || name === 'href') && typeof value === 'string') {
@@ -861,10 +892,79 @@ export async function registerRoutes(
                   }
                   return originalSetAttribute.call(this, name, value);
                 };
+                
+                // Intercept direct property assignment
+                if (tagName === 'script') {
+                  Object.defineProperty(element, 'src', {
+                    set: function(value) {
+                      if (typeof value === 'string') {
+                        value = rewriteUrl(value);
+                      }
+                      originalCreateElement.call(document, 'script').src = value;
+                      this.setAttribute('src', value);
+                    },
+                    get: function() {
+                      return this.getAttribute('src');
+                    }
+                  });
+                }
+                
+                if (tagName === 'link') {
+                  Object.defineProperty(element, 'href', {
+                    set: function(value) {
+                      if (typeof value === 'string') {
+                        value = rewriteUrl(value);
+                      }
+                      this.setAttribute('href', value);
+                    },
+                    get: function() {
+                      return this.getAttribute('href');
+                    }
+                  });
+                }
               }
               
               return element;
             };
+            
+            // Use MutationObserver to intercept dynamically added script/link tags
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', function() {
+                setupMutationObserver();
+              });
+            } else {
+              setupMutationObserver();
+            }
+            
+            function setupMutationObserver() {
+              const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                  mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1) { // Element node
+                      // Handle script tags
+                      if (node.tagName === 'SCRIPT' && node.src) {
+                        node.src = rewriteUrl(node.src);
+                      }
+                      // Handle link tags
+                      if (node.tagName === 'LINK' && node.href) {
+                        node.href = rewriteUrl(node.href);
+                      }
+                      // Handle nested scripts/links
+                      const scripts = node.querySelectorAll && node.querySelectorAll('script[src], link[href]');
+                      if (scripts) {
+                        scripts.forEach(function(el) {
+                          if (el.src) el.src = rewriteUrl(el.src);
+                          if (el.href) el.href = rewriteUrl(el.href);
+                        });
+                      }
+                    }
+                  });
+                });
+              });
+              
+              observer.observe(document.head, { childList: true, subtree: true });
+              observer.observe(document.body, { childList: true, subtree: true });
+            }
             
             // Override WebSocket to include auth for Home Assistant WebSocket
             const originalWebSocket = window.WebSocket;
@@ -883,12 +983,47 @@ export async function registerRoutes(
               return new originalWebSocket(rewrittenUrl, protocols);
             };
             
-            // Intercept dynamic imports and module loading
+            // Intercept dynamic imports
+            const originalImport = window.import || (() => {});
+            if (window.import) {
+              window.import = function(module) {
+                const rewrittenModule = rewriteUrl(module);
+                return originalImport(rewrittenModule);
+              };
+            }
+            
+            // Intercept System.import if available
             if (window.System && window.System.import) {
               const originalSystemImport = window.System.import;
               window.System.import = function(module) {
                 const rewrittenModule = rewriteUrl(module);
                 return originalSystemImport.call(this, rewrittenModule);
+              };
+            }
+            
+            // Intercept CSS @font-face and @import URLs
+            const originalInsertRule = CSSStyleSheet.prototype.insertRule;
+            CSSStyleSheet.prototype.insertRule = function(rule, index) {
+              if (typeof rule === 'string') {
+                rule = rule.replace(/url\(['"]?([^'"]+)['"]?\)/g, function(match, url) {
+                  const rewritten = rewriteUrl(url);
+                  return 'url("' + rewritten + '")';
+                });
+              }
+              return originalInsertRule.call(this, rule, index);
+            };
+            
+            // Intercept CSSStyleSheet.addRule
+            if (CSSStyleSheet.prototype.addRule) {
+              const originalAddRule = CSSStyleSheet.prototype.addRule;
+              CSSStyleSheet.prototype.addRule = function(selector, style, index) {
+                if (typeof style === 'string') {
+                  style = style.replace(/url\(['"]?([^'"]+)['"]?\)/g, function(match, url) {
+                    const rewritten = rewriteUrl(url);
+                    return 'url("' + rewritten + '")';
+                  });
+                }
+                return originalAddRule.call(this, selector, style, index);
               };
             }
           </script>`
@@ -1076,11 +1211,19 @@ export async function registerRoutes(
 
       console.log("[HA Catch-all] Response:", {
         status: response.status,
+        statusText: response.statusText,
         contentType: response.headers.get("content-type"),
         path,
+        targetUrl,
       });
 
       if (!response.ok) {
+        console.warn("[HA Catch-all] Failed to fetch:", {
+          path,
+          status: response.status,
+          statusText: response.statusText,
+          targetUrl,
+        });
         return res.status(response.status).end();
       }
 
