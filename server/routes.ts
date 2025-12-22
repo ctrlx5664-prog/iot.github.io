@@ -751,7 +751,7 @@ export async function registerRoutes(
               }
               
               // API calls - keep relative, will be handled by fetch override
-              if (url.startsWith('/api/')) {
+              if (url.startsWith('/api/') && !url.startsWith('/api/ha/')) {
                 return url;
               }
               
@@ -759,12 +759,28 @@ export async function registerRoutes(
               const haBaseUrlValue = "${haBaseUrl}";
               if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
                 const path = url.substring(haBaseUrlValue.length);
-                return '/api/ha/static' + path;
+                return '/api/ha/static' + (path.startsWith('/') ? path : '/' + path);
               }
               
-              // Relative URLs - use proxy
+              // Absolute URLs pointing to current origin (Netlify) - convert to proxy
+              // This catches resources that are being loaded directly from Netlify
+              const currentOrigin = window.location.origin;
+              if (url.startsWith(currentOrigin)) {
+                const path = url.substring(currentOrigin.length);
+                // If it's not already proxied and not an API call, proxy it
+                if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
+                  return '/api/ha/static' + path;
+                }
+                return path; // Already proxied or API call
+              }
+              
+              // Relative URLs - use proxy (except API calls)
               if (url.startsWith('/')) {
-                return '/api/ha/static' + url;
+                // Check if it's a static asset path (not API)
+                if (!url.startsWith('/api/')) {
+                  return '/api/ha/static' + url;
+                }
+                return url; // API calls stay as-is
               }
               
               // Relative URLs without leading slash - use proxy
@@ -779,11 +795,17 @@ export async function registerRoutes(
             const originalFetch = window.fetch;
             window.fetch = function(url, options = {}) {
               const urlStr = typeof url === 'string' ? url : url.toString();
+              const rewrittenUrl = rewriteUrl(urlStr);
               
-              // If it's an API call (relative /api/), proxy it through our server
-              if (urlStr.startsWith('/api/')) {
+              // Log URL rewrites for debugging
+              if (urlStr !== rewrittenUrl) {
+                console.log('[HA Proxy] Rewriting fetch URL:', urlStr, '->', rewrittenUrl);
+              }
+              
+              // If it's an API call (relative /api/ but not /api/ha/static/), proxy it through our server
+              if (urlStr.startsWith('/api/') && !urlStr.startsWith('/api/ha/static/')) {
                 // Convert to absolute URL through our proxy
-                const proxyUrl = window.location.origin + urlStr;
+                const proxyUrl = window.location.origin + rewrittenUrl;
                 options = options || {};
                 options.headers = options.headers || {};
                 options.headers['Authorization'] = 'Bearer ${haToken}';
@@ -793,15 +815,17 @@ export async function registerRoutes(
                 });
               }
               
-              // For other URLs, rewrite to absolute HA URLs if needed
-              const rewrittenUrl = rewriteUrl(urlStr);
-              
-              // Log URL rewrites for debugging
-              if (urlStr !== rewrittenUrl) {
-                console.log('[HA Proxy] Rewriting fetch URL:', urlStr, '->', rewrittenUrl);
+              // For proxied static assets, convert to absolute URL
+              if (rewrittenUrl.startsWith('/api/ha/static/')) {
+                const proxyUrl = window.location.origin + rewrittenUrl;
+                return originalFetch(proxyUrl, options).catch(function(error) {
+                  console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
+                  throw error;
+                });
               }
               
               // If URL points to HA and is an API call, add auth header
+              const haBaseUrlValue = "${haBaseUrl}";
               if (haBaseUrlValue && rewrittenUrl.startsWith(haBaseUrlValue) && rewrittenUrl.includes('/api/')) {
                 options = options || {};
                 options.headers = options.headers || {};
@@ -821,28 +845,29 @@ export async function registerRoutes(
               // Store original URL for later use
               this._haOriginalUrl = url;
               
-              // If it's an API call (relative /api/), proxy it through our server
-              if (url.startsWith('/api/')) {
-                url = window.location.origin + url;
-              } else {
-                // For other URLs, rewrite to absolute HA URLs if needed
-                url = rewriteUrl(url);
+              // Rewrite URL using our helper function
+              let rewrittenUrl = rewriteUrl(url);
+              
+              // If it's a proxied static asset, convert to absolute URL
+              if (rewrittenUrl.startsWith('/api/ha/static/')) {
+                rewrittenUrl = window.location.origin + rewrittenUrl;
+              } else if (rewrittenUrl.startsWith('/api/') && !rewrittenUrl.startsWith('/api/ha/static/')) {
+                // API calls - convert to absolute URL through our proxy
+                rewrittenUrl = window.location.origin + rewrittenUrl;
               }
               
               // Log URL rewrites for debugging
-              if (this._haOriginalUrl !== url) {
-                console.log('[HA Proxy] Rewriting XHR URL:', this._haOriginalUrl, '->', url);
+              if (this._haOriginalUrl !== rewrittenUrl) {
+                console.log('[HA Proxy] Rewriting XHR URL:', this._haOriginalUrl, '->', rewrittenUrl);
               }
               
-              return originalXHROpen.call(this, method, url, ...rest);
+              return originalXHROpen.call(this, method, rewrittenUrl, ...rest);
             };
             
             // Override send to add auth header for API calls
             XMLHttpRequest.prototype.send = function(data) {
               // If it's an API call, add auth header
-              if (this._haOriginalUrl && this._haOriginalUrl.startsWith('/api/')) {
-                this.setRequestHeader('Authorization', 'Bearer ${haToken}');
-              } else if (haBaseUrlValue && this._haOriginalUrl && this._haOriginalUrl.includes('/api/')) {
+              if (this._haOriginalUrl && this._haOriginalUrl.startsWith('/api/') && !this._haOriginalUrl.startsWith('/api/ha/static/')) {
                 this.setRequestHeader('Authorization', 'Bearer ${haToken}');
               }
               return originalXHRSend.call(this, data);
