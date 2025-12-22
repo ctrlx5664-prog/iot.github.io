@@ -834,8 +834,18 @@ export async function registerRoutes(
               console.log('[HA Proxy] Injection script loaded and executing');
               
               // Register Service Worker to intercept ALL requests including dynamic imports
+              // CRITICAL: This intercepts ES6 dynamic imports that don't go through fetch
               if ('serviceWorker' in navigator) {
+                // Use inline Service Worker code
                 const swCode = \`
+                  self.addEventListener('install', function(event) {
+                    self.skipWaiting();
+                  });
+                  
+                  self.addEventListener('activate', function(event) {
+                    event.waitUntil(self.clients.claim());
+                  });
+                  
                   self.addEventListener('fetch', function(event) {
                     const url = new URL(event.request.url);
                     const currentOrigin = self.location.origin;
@@ -856,7 +866,20 @@ export async function registerRoutes(
                         if (isResourceFile || isResourcePath) {
                           const proxyUrl = currentOrigin + '/api/ha/static' + path + url.search;
                           console.log('[HA Proxy SW] Intercepting:', event.request.url, '->', proxyUrl);
-                          event.respondWith(fetch(proxyUrl, event.request));
+                          event.respondWith(
+                            fetch(proxyUrl, {
+                              method: event.request.method,
+                              headers: event.request.headers,
+                              body: event.request.body,
+                              mode: event.request.mode,
+                              credentials: event.request.credentials,
+                              cache: event.request.cache,
+                              redirect: event.request.redirect
+                            }).catch(function(error) {
+                              console.error('[HA Proxy SW] Fetch error:', error);
+                              return fetch(event.request);
+                            })
+                          );
                           return;
                         }
                       }
@@ -867,18 +890,32 @@ export async function registerRoutes(
                   });
                 \`;
                 
+                // Create blob URL for Service Worker
                 const blob = new Blob([swCode], { type: 'application/javascript' });
                 const swUrl = URL.createObjectURL(blob);
                 
-                navigator.serviceWorker.register(swUrl, { scope: '/' })
-                  .then(function(registration) {
-                    console.log('[HA Proxy] Service Worker registered:', registration.scope);
-                    // Force activation
-                    return registration.update();
-                  })
-                  .catch(function(error) {
-                    console.warn('[HA Proxy] Service Worker registration failed:', error);
-                  });
+                // Unregister any existing service workers first
+                navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                  return Promise.all(registrations.map(function(registration) {
+                    return registration.unregister();
+                  }));
+                }).then(function() {
+                  // Register new Service Worker
+                  return navigator.serviceWorker.register(swUrl, { scope: '/' });
+                }).then(function(registration) {
+                  console.log('[HA Proxy] Service Worker registered:', registration.scope);
+                  // Force immediate activation
+                  if (registration.installing) {
+                    registration.installing.addEventListener('statechange', function() {
+                      if (this.state === 'installed' && navigator.serviceWorker.controller) {
+                        window.location.reload();
+                      }
+                    });
+                  }
+                  return registration.update();
+                }).catch(function(error) {
+                  console.warn('[HA Proxy] Service Worker registration failed:', error);
+                });
               }
               // Home Assistant authentication configuration
               window.hassTokens = { access_token: "${haToken}" };
