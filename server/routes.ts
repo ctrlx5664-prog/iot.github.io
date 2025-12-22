@@ -687,108 +687,56 @@ export async function registerRoutes(
     html = html
       // Replace relative asset paths to use our proxy
       // In Netlify, we need to route through /api/ha/static/* to go through serverless function
+      // Replace relative URLs with absolute HA URLs - load resources directly from HA
       .replace(/href="\/([^"]+)"/g, (match, path) => {
-        // Skip API paths and WebSocket - they have their own handlers
-        if (path.startsWith('static/')) {
-          const newUrl = `/api/ha/static/static/${path.substring(7)}`;
-          hrefReplacements++;
-          replacedUrls.push(`${match} -> href="${newUrl}"`);
-          return `href="${newUrl}"`;
-        } else if (path.startsWith('frontend_latest/')) {
-          const newUrl = `/api/ha/static/frontend_latest/${path.substring(16)}`;
-          hrefReplacements++;
-          replacedUrls.push(`${match} -> href="${newUrl}"`);
-          return `href="${newUrl}"`;
-        } else if (path.startsWith('local/')) {
-          const newUrl = `/api/ha/static/local/${path.substring(6)}`;
-          hrefReplacements++;
-          replacedUrls.push(`${match} -> href="${newUrl}"`);
-          return `href="${newUrl}"`;
-        } else if (path.startsWith('homeassistant/')) {
-          const newUrl = `/api/ha/static/homeassistant/${path.substring(14)}`;
-          hrefReplacements++;
-          replacedUrls.push(`${match} -> href="${newUrl}"`);
-          return `href="${newUrl}"`;
-        } else if (path.startsWith('hacsfiles/')) {
-          const newUrl = `/api/ha/static/hacsfiles/${path.substring(11)}`;
-          hrefReplacements++;
-          replacedUrls.push(`${match} -> href="${newUrl}"`);
-          return `href="${newUrl}"`;
+        // Skip API paths - they need to go through proxy for authentication
+        if (path.startsWith('api/')) {
+          return match; // Keep API paths as relative (will be handled by JavaScript)
         }
-        return match; // Keep original for API paths
+        // Convert all other relative URLs to absolute HA URLs
+        const newUrl = `${haBaseUrl}/${path}`;
+        hrefReplacements++;
+        replacedUrls.push(`${match} -> href="${newUrl}"`);
+        return `href="${newUrl}"`;
       })
       .replace(/src="\/([^"]+)"/g, (match, path) => {
-        // Proxy static assets through our server
-        if (path.startsWith('static/')) {
-          const newUrl = `/api/ha/static/static/${path.substring(7)}`;
-          srcReplacements++;
-          replacedUrls.push(`${match} -> src="${newUrl}"`);
-          return `src="${newUrl}"`;
-        } else if (path.startsWith('frontend_latest/')) {
-          const newUrl = `/api/ha/static/frontend_latest/${path.substring(16)}`;
-          srcReplacements++;
-          replacedUrls.push(`${match} -> src="${newUrl}"`);
-          return `src="${newUrl}"`;
-        } else if (path.startsWith('local/')) {
-          const newUrl = `/api/ha/static/local/${path.substring(6)}`;
-          srcReplacements++;
-          replacedUrls.push(`${match} -> src="${newUrl}"`);
-          return `src="${newUrl}"`;
-        } else if (path.startsWith('homeassistant/')) {
-          const newUrl = `/api/ha/static/homeassistant/${path.substring(14)}`;
-          srcReplacements++;
-          replacedUrls.push(`${match} -> src="${newUrl}"`);
-          return `src="${newUrl}"`;
-        } else if (path.startsWith('hacsfiles/')) {
-          const newUrl = `/api/ha/static/hacsfiles/${path.substring(11)}`;
-          srcReplacements++;
-          replacedUrls.push(`${match} -> src="${newUrl}"`);
-          return `src="${newUrl}"`;
+        // Skip API paths - they need to go through proxy for authentication
+        if (path.startsWith('api/')) {
+          return match; // Keep API paths as relative (will be handled by JavaScript)
         }
-        return match; // Keep original for API paths
+        // Convert all other relative URLs to absolute HA URLs
+        const newUrl = `${haBaseUrl}/${path}`;
+        srcReplacements++;
+        replacedUrls.push(`${match} -> src="${newUrl}"`);
+        return `src="${newUrl}"`;
       })
       .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
-        if (path.startsWith('static/')) {
-          const newUrl = `/api/ha/static/static/${path.substring(7)}`;
-          urlReplacements++;
-          replacedUrls.push(`${match} -> url('${newUrl}')`);
-          return `url('${newUrl}')`;
-        } else if (path.startsWith('frontend_latest/')) {
-          const newUrl = `/api/ha/static/frontend_latest/${path.substring(16)}`;
-          urlReplacements++;
-          replacedUrls.push(`${match} -> url('${newUrl}')`);
-          return `url('${newUrl}')`;
-        } else if (path.startsWith('local/')) {
-          const newUrl = `/api/ha/static/local/${path.substring(6)}`;
-          urlReplacements++;
-          replacedUrls.push(`${match} -> url('${newUrl}')`);
-          return `url('${newUrl}')`;
-        } else if (path.startsWith('homeassistant/')) {
-          const newUrl = `/api/ha/static/homeassistant/${path.substring(14)}`;
-          urlReplacements++;
-          replacedUrls.push(`${match} -> url('${newUrl}')`);
-          return `url('${newUrl}')`;
-        } else if (path.startsWith('hacsfiles/')) {
-          const newUrl = `/api/ha/static/hacsfiles/${path.substring(11)}`;
-          urlReplacements++;
-          replacedUrls.push(`${match} -> url('${newUrl}')`);
-          return `url('${newUrl}')`;
+        // Skip API paths
+        if (path.startsWith('api/')) {
+          return match;
         }
-        return match;
+        // Convert CSS URLs to absolute HA URLs
+        const newUrl = `${haBaseUrl}/${path}`;
+        urlReplacements++;
+        replacedUrls.push(`${match} -> url('${newUrl}')`);
+        return `url('${newUrl}')`;
       })
       // Replace WebSocket URLs to point to Home Assistant
       .replace(/ws:\/\/[^/]+/g, wsBaseUrl)
       .replace(/wss:\/\/[^/]+/g, wsBaseUrl)
       // Inject authentication token and configuration
+      // IMPORTANT: This script must run IMMEDIATELY, before any other scripts
       .replace(
         /<head>/i,
         `<head>
           <script>
-            // Home Assistant authentication configuration
-            window.hassTokens = { access_token: "${haToken}" };
-            window.hassUrl = "${haBaseUrl}";
+            // CRITICAL: Run immediately, before DOM is ready
+            (function() {
+              // Home Assistant authentication configuration
+              window.hassTokens = { access_token: "${haToken}" };
+              window.hassUrl = "${haBaseUrl}";
             
-            // Helper function to rewrite URLs to go through proxy
+            // Helper function to rewrite URLs - convert relative to absolute HA URLs, proxy API calls
             const haBaseUrlValue = "${haBaseUrl}";
             function rewriteUrl(url) {
               if (!url) return url;
@@ -799,52 +747,49 @@ export async function registerRoutes(
                 return url;
               }
               
-              // Already proxied or external URL
-              if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('//')) {
-                // If it's pointing to HA base URL, rewrite to use /ha/* proxy
-                if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
-                  const path = url.substring(haBaseUrlValue.length);
-                  if (!path.startsWith('/')) {
-                    return '/ha/' + path;
-                  }
-                  return '/ha' + path;
-                }
+              // Already absolute URL pointing to HA - keep it
+              if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
                 return url;
               }
               
-              // Relative URLs - rewrite static assets to use proxy
-              if (url.startsWith('/static/')) {
-                return '/api/ha/static/static' + url.substring(7);
-              } else if (url.startsWith('/frontend_latest/')) {
-                return '/api/ha/static/frontend_latest' + url.substring(16);
-              } else if (url.startsWith('/local/')) {
-                return '/api/ha/static/local' + url.substring(6);
-              } else if (url.startsWith('/homeassistant/')) {
-                return '/api/ha/static/homeassistant' + url.substring(14);
-              } else if (url.startsWith('/hacsfiles/')) {
-                return '/api/ha/static/hacsfiles' + url.substring(10);
-              } else if (url.startsWith('/api/')) {
-                // API calls go through our proxy
-                return url;
-              } else if (url.startsWith('/')) {
-                // Other absolute paths - proxy through /ha/*
-                return '/ha' + url;
+              // Relative URLs starting with /api/ - proxy through our server for authentication
+              if (url.startsWith('/api/')) {
+                return url; // Keep as relative, will be handled by fetch override
               }
               
-              // Relative URLs without leading slash - these should be resolved relative to current location
-              // For now, assume they're static assets and try to proxy them
+              // Other relative URLs - convert to absolute HA URLs
+              if (url.startsWith('/')) {
+                return haBaseUrlValue + url;
+              }
+              
+              // Relative URLs without leading slash - resolve relative to HA base
               if (url.includes('.')) {
-                // Likely a file (has extension), try to proxy through /ha
-                return '/ha/' + url;
+                // Likely a file, resolve relative to HA base
+                return haBaseUrlValue + '/' + url;
               }
               
               return url;
             }
             
-            // Override fetch to rewrite URLs and include auth token
+            // Override fetch to handle API calls through proxy and add auth token
             const originalFetch = window.fetch;
             window.fetch = function(url, options = {}) {
               const urlStr = typeof url === 'string' ? url : url.toString();
+              
+              // If it's an API call (relative /api/), proxy it through our server
+              if (urlStr.startsWith('/api/')) {
+                // Convert to absolute URL through our proxy
+                const proxyUrl = window.location.origin + urlStr;
+                options = options || {};
+                options.headers = options.headers || {};
+                options.headers['Authorization'] = 'Bearer ${haToken}';
+                return originalFetch(proxyUrl, options).catch(function(error) {
+                  console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
+                  throw error;
+                });
+              }
+              
+              // For other URLs, rewrite to absolute HA URLs if needed
               const rewrittenUrl = rewriteUrl(urlStr);
               
               // Log URL rewrites for debugging
@@ -852,8 +797,8 @@ export async function registerRoutes(
                 console.log('[HA Proxy] Rewriting fetch URL:', urlStr, '->', rewrittenUrl);
               }
               
-              // Add auth header for API calls
-              if (rewrittenUrl.startsWith('/api/') || rewrittenUrl.includes('/api/')) {
+              // If URL points to HA and is an API call, add auth header
+              if (haBaseUrlValue && rewrittenUrl.startsWith(haBaseUrlValue) && rewrittenUrl.includes('/api/')) {
                 options = options || {};
                 options.headers = options.headers || {};
                 options.headers['Authorization'] = 'Bearer ${haToken}';
@@ -865,17 +810,38 @@ export async function registerRoutes(
               });
             };
             
-            // Override XMLHttpRequest to rewrite URLs
+            // Override XMLHttpRequest to handle API calls through proxy and add auth token
             const originalXHROpen = XMLHttpRequest.prototype.open;
+            const originalXHRSend = XMLHttpRequest.prototype.send;
             XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-              const rewrittenUrl = rewriteUrl(url);
+              // Store original URL for later use
+              this._haOriginalUrl = url;
               
-              // Log URL rewrites for debugging
-              if (url !== rewrittenUrl) {
-                console.log('[HA Proxy] Rewriting XHR URL:', url, '->', rewrittenUrl);
+              // If it's an API call (relative /api/), proxy it through our server
+              if (url.startsWith('/api/')) {
+                url = window.location.origin + url;
+              } else {
+                // For other URLs, rewrite to absolute HA URLs if needed
+                url = rewriteUrl(url);
               }
               
-              return originalXHROpen.call(this, method, rewrittenUrl, ...rest);
+              // Log URL rewrites for debugging
+              if (this._haOriginalUrl !== url) {
+                console.log('[HA Proxy] Rewriting XHR URL:', this._haOriginalUrl, '->', url);
+              }
+              
+              return originalXHROpen.call(this, method, url, ...rest);
+            };
+            
+            // Override send to add auth header for API calls
+            XMLHttpRequest.prototype.send = function(data) {
+              // If it's an API call, add auth header
+              if (this._haOriginalUrl && this._haOriginalUrl.startsWith('/api/')) {
+                this.setRequestHeader('Authorization', 'Bearer ${haToken}');
+              } else if (haBaseUrlValue && this._haOriginalUrl && this._haOriginalUrl.includes('/api/')) {
+                this.setRequestHeader('Authorization', 'Bearer ${haToken}');
+              }
+              return originalXHRSend.call(this, data);
             };
             
             // Override createElement to intercept script/link tags
@@ -966,13 +932,24 @@ export async function registerRoutes(
               observer.observe(document.body, { childList: true, subtree: true });
             }
             
-            // Override WebSocket to include auth for Home Assistant WebSocket
+            // Override WebSocket to point directly to HA and include auth
             const originalWebSocket = window.WebSocket;
             window.WebSocket = function(url, protocols) {
               const urlStr = typeof url === 'string' ? url : url.toString();
-              const rewrittenUrl = rewriteUrl(urlStr);
+              let rewrittenUrl = rewriteUrl(urlStr);
               
+              // Ensure WebSocket URLs point to HA
               if (rewrittenUrl.includes('/api/websocket')) {
+                // If it's a relative URL, convert to absolute HA URL
+                if (rewrittenUrl.startsWith('/')) {
+                  rewrittenUrl = haBaseUrlValue + rewrittenUrl;
+                } else if (!rewrittenUrl.startsWith('ws://') && !rewrittenUrl.startsWith('wss://')) {
+                  // If it's a protocol-relative URL, convert to absolute
+                  const protocol = haBaseUrlValue.startsWith('https') ? 'wss' : 'ws';
+                  const haHost = haBaseUrlValue.replace(/^https?:/, '');
+                  rewrittenUrl = protocol + '://' + haHost + (rewrittenUrl.startsWith('//') ? rewrittenUrl.substring(1) : rewrittenUrl);
+                }
+                
                 // Home Assistant WebSocket requires auth via first message
                 const ws = new originalWebSocket(rewrittenUrl, protocols);
                 ws.addEventListener('open', function() {
@@ -980,6 +957,8 @@ export async function registerRoutes(
                 });
                 return ws;
               }
+              
+              // For other WebSocket URLs, just rewrite if needed
               return new originalWebSocket(rewrittenUrl, protocols);
             };
             
@@ -1026,6 +1005,45 @@ export async function registerRoutes(
                 return originalAddRule.call(this, selector, style, index);
               };
             }
+            
+            // Intercept all existing script and link tags in the document
+            // This runs immediately to catch tags that were already in the HTML
+            (function interceptExistingTags() {
+              // Use setTimeout to ensure DOM is ready, but run as early as possible
+              if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', interceptExistingTags);
+              } else {
+                // DOM already ready, run immediately
+                setTimeout(interceptExistingTags, 0);
+              }
+              
+              function interceptExistingTags() {
+                const scripts = document.querySelectorAll('script[src]');
+                scripts.forEach(function(script) {
+                  if (script.src) {
+                    const originalSrc = script.src;
+                    const rewritten = rewriteUrl(originalSrc);
+                    if (originalSrc !== rewritten) {
+                      script.src = rewritten;
+                      console.log('[HA Proxy] Rewrote existing script:', originalSrc, '->', rewritten);
+                    }
+                  }
+                });
+                
+                const links = document.querySelectorAll('link[href]');
+                links.forEach(function(link) {
+                  if (link.href) {
+                    const originalHref = link.href;
+                    const rewritten = rewriteUrl(originalHref);
+                    if (originalHref !== rewritten) {
+                      link.href = rewritten;
+                      console.log('[HA Proxy] Rewrote existing link:', originalHref, '->', rewritten);
+                    }
+                  }
+                });
+              }
+            })();
+            })(); // End IIFE
           </script>`
       );
 
@@ -1576,3 +1594,4 @@ export async function registerRoutes(
 
   return;
 }
+
