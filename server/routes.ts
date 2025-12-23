@@ -718,6 +718,12 @@ export async function registerRoutes(
           return;
         }
         
+        // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
+        if (path.startsWith('/auth/')) {
+          console.log('[HA Proxy SW] Skipping auth endpoint:', path);
+          return; // Let it through normally
+        }
+        
         // Skip API calls (not resources) - but ONLY if they're NOT resources
         // Some API endpoints might serve resources, so we need to be careful
         if (path.startsWith('/api/') && !path.startsWith('/api/ha/static/')) {
@@ -822,6 +828,21 @@ export async function registerRoutes(
     res.setHeader("Service-Worker-Allowed", "/");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.send(swCode);
+  });
+
+  // Route for Home Assistant auth endpoints - redirect to HA
+  // These endpoints are used by HA for OAuth/authentication flows
+  app.get("/auth/authorize", async (req, res) => {
+    if (!haBaseUrl) {
+      return res.status(500).json({ error: "HA_BASE_URL not configured" });
+    }
+    
+    // Redirect to Home Assistant auth endpoint with all query parameters
+    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    const redirectUrl = `${haBaseUrl}/auth/authorize${queryString}`;
+    
+    console.log("[HA Auth] Redirecting to HA:", redirectUrl);
+    res.redirect(302, redirectUrl);
   });
 
   // Simplified route for Home Assistant static assets via /api/ha/static/*
@@ -1141,8 +1162,13 @@ export async function registerRoutes(
                 return path; // Already proxied or API call
               }
               
-              // Relative URLs - use proxy (except API calls)
+              // Relative URLs - use proxy (except API calls and auth endpoints)
               if (url.startsWith('/')) {
+                // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
+                if (url.startsWith('/auth/')) {
+                  console.log('[HA Proxy] Auth endpoint, keeping as-is:', url);
+                  return url;
+                }
                 // Check if it's a static asset path (not API)
                 if (!url.startsWith('/api/')) {
                   const rewritten = '/api/ha/static' + url;
@@ -1193,6 +1219,12 @@ export async function registerRoutes(
                 // Skip if already proxied
                 if (path.startsWith('/api/ha/static/')) {
                   // Already proxied, let it through
+                  return originalFetch(urlStr, options);
+                }
+                
+                // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
+                if (path.startsWith('/auth/')) {
+                  console.log('[HA Proxy] Fetch: Skipping auth endpoint:', path);
                   return originalFetch(urlStr, options);
                 }
                 
@@ -1371,51 +1403,80 @@ export async function registerRoutes(
             const originalURL = window.URL;
             window.URL = function(url, base) {
               try {
-                // Handle invalid or relative base URLs
-                if (base !== undefined && base !== null) {
-                  if (typeof base === 'string') {
-                    // Skip rewriting if base is relative (starts with . or / but not http)
-                    if (base.startsWith('./') || base === '.' || base === '..' || 
-                        (base.startsWith('/') && !base.startsWith('http'))) {
-                      // Use current location as base for relative URLs
-                      base = window.location.href;
+                // Convert relative base to absolute if needed
+                if (base !== undefined && base !== null && typeof base === 'string') {
+                  // If base is relative (starts with / but not http), convert to absolute
+                  if (base.startsWith('/') && !base.startsWith('http')) {
+                    base = window.location.origin + base;
+                  } else if (base.startsWith('./') || base === '.' || base === '..') {
+                    // Relative paths - use current location as base
+                    base = window.location.href;
+                  } else if (!base.startsWith('http') && !base.startsWith('data:') && !base.startsWith('blob:')) {
+                    // Other relative URLs - rewrite first, then convert to absolute if still relative
+                    const rewrittenBase = rewriteUrl(base);
+                    if (rewrittenBase.startsWith('/') && !rewrittenBase.startsWith('http')) {
+                      base = window.location.origin + rewrittenBase;
                     } else {
-                      base = rewriteUrl(base);
+                      base = rewrittenBase;
                     }
+                  } else {
+                    // Absolute URL - just rewrite it
+                    base = rewriteUrl(base);
                   }
-                } else {
+                } else if (base === undefined || base === null) {
                   // If no base provided and url is relative, use current location
-                  if (typeof url === 'string' && (url.startsWith('./') || url === '.' || 
+                  if (typeof url === 'string' && (url.startsWith('./') || url === '.' || url === '..' || 
                       (!url.startsWith('http') && !url.startsWith('/') && !url.startsWith('data:') && !url.startsWith('blob:')))) {
                     base = window.location.href;
                   }
                 }
                 
+                // Handle url parameter
                 if (typeof url === 'string') {
-                  // Don't rewrite relative URLs that need a base
+                  // Don't rewrite relative URLs that need a base (they'll be resolved against base)
                   if (url.startsWith('./') || url === '.' || url === '..') {
-                    // Keep as-is, will use base
+                    // Keep as-is, will be resolved against base
+                  } else if (!url.startsWith('http') && !url.startsWith('/') && !url.startsWith('data:') && !url.startsWith('blob:')) {
+                    // Relative URL without leading slash - may need base
+                    if (base === undefined || base === null) {
+                      base = window.location.href;
+                    }
                   } else {
+                    // Absolute or absolute-relative URL - rewrite it
                     url = rewriteUrl(url);
+                    // If rewritten URL is relative, convert to absolute
+                    if (url.startsWith('/') && !url.startsWith('http')) {
+                      url = window.location.origin + url;
+                    }
                   }
                 }
                 
-                // If base is still invalid, try without it
+                // Now both url and base should be valid for URL constructor
                 if (base !== undefined && base !== null) {
                   try {
                     return new originalURL(url, base);
                   } catch (e) {
-                    console.warn('[HA Proxy] URL constructor failed with base, trying without:', e, {url, base});
+                    console.warn('[HA Proxy] URL constructor failed, using fallback:', e, {url, base});
                     // Fallback: try with current location as base
-                    return new originalURL(url, window.location.href);
+                    try {
+                      return new originalURL(url, window.location.href);
+                    } catch (e2) {
+                      // Last resort: try without base
+                      return new originalURL(url);
+                    }
                   }
                 }
                 
                 return new originalURL(url, base);
               } catch (error) {
                 console.error('[HA Proxy] URL constructor error:', error, {url, base});
-                // Fallback to original URL constructor
-                return new originalURL(url, base);
+                // Final fallback: use original URL constructor as-is
+                try {
+                  return new originalURL(url, base);
+                } catch (e) {
+                  // If that also fails, try with current location
+                  return new originalURL(url, window.location.href);
+                }
               }
             };
             // Copy static methods
