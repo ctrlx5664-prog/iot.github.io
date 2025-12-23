@@ -11,3 +11,9 @@
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
   status = 200
+
+# Service Worker for Home Assistant proxy - must be served by serverless function
+[[redirects]]
+  from = "/ha-proxy-sw.js"
+  to = "/.netlify/functions/api/ha-proxy-sw.js"
+  status = 200
