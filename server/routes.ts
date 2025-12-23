@@ -1367,15 +1367,56 @@ export async function registerRoutes(
             };
             
             // Override URL constructor to intercept absolute URLs
+            // CRITICAL: Must handle relative URLs and invalid bases gracefully
             const originalURL = window.URL;
             window.URL = function(url, base) {
-              if (typeof url === 'string') {
-                url = rewriteUrl(url);
+              try {
+                // Handle invalid or relative base URLs
+                if (base !== undefined && base !== null) {
+                  if (typeof base === 'string') {
+                    // Skip rewriting if base is relative (starts with . or / but not http)
+                    if (base.startsWith('./') || base === '.' || base === '..' || 
+                        (base.startsWith('/') && !base.startsWith('http'))) {
+                      // Use current location as base for relative URLs
+                      base = window.location.href;
+                    } else {
+                      base = rewriteUrl(base);
+                    }
+                  }
+                } else {
+                  // If no base provided and url is relative, use current location
+                  if (typeof url === 'string' && (url.startsWith('./') || url === '.' || 
+                      (!url.startsWith('http') && !url.startsWith('/') && !url.startsWith('data:') && !url.startsWith('blob:')))) {
+                    base = window.location.href;
+                  }
+                }
+                
+                if (typeof url === 'string') {
+                  // Don't rewrite relative URLs that need a base
+                  if (url.startsWith('./') || url === '.' || url === '..') {
+                    // Keep as-is, will use base
+                  } else {
+                    url = rewriteUrl(url);
+                  }
+                }
+                
+                // If base is still invalid, try without it
+                if (base !== undefined && base !== null) {
+                  try {
+                    return new originalURL(url, base);
+                  } catch (e) {
+                    console.warn('[HA Proxy] URL constructor failed with base, trying without:', e, {url, base});
+                    // Fallback: try with current location as base
+                    return new originalURL(url, window.location.href);
+                  }
+                }
+                
+                return new originalURL(url, base);
+              } catch (error) {
+                console.error('[HA Proxy] URL constructor error:', error, {url, base});
+                // Fallback to original URL constructor
+                return new originalURL(url, base);
               }
-              if (typeof base === 'string') {
-                base = rewriteUrl(base);
-              }
-              return new originalURL(url, base);
             };
             // Copy static methods
             window.URL.createObjectURL = originalURL.createObjectURL;
