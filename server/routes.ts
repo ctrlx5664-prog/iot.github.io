@@ -703,85 +703,118 @@ export async function registerRoutes(
         const url = new URL(requestUrl);
         const currentOrigin = self.location.origin;
         
-        // Log all requests for debugging
-        console.log('[HA Proxy SW] Intercepting request:', {
-          url: requestUrl,
-          method: event.request.method,
-          mode: event.request.mode,
-          destination: event.request.destination,
-          origin: url.origin,
-          pathname: url.pathname
-        });
-        
         // Only intercept requests to current origin (Netlify)
-        if (url.origin === currentOrigin) {
-          const path = url.pathname;
-          
-          // Skip if already proxied or is an API call
-          if (path.startsWith('/api/ha/') || path.startsWith('/api/')) {
-            console.log('[HA Proxy SW] Skipping (already proxied or API):', path);
-            return; // Let it through normally
-          }
-          
-          // Check if it's a resource that should be proxied
-          const isResourceFile = /\\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif)$/i.test(path);
-          const isResourcePath = path.startsWith('/frontend_latest/') || 
-                                 path.startsWith('/static/') ||
-                                 path.startsWith('/homeassistant/') ||
-                                 path.startsWith('/hacsfiles/') ||
-                                 path.startsWith('/local/') ||
-                                 path.startsWith('/manifest.json') ||
-                                 path.startsWith('/service_worker.js');
-          
-          if (isResourceFile || isResourcePath) {
-            const proxyUrl = currentOrigin + '/api/ha/static' + path + (url.search || '');
-            console.log('[HA Proxy SW] PROXYING resource:', {
-              original: requestUrl,
-              proxied: proxyUrl,
-              method: event.request.method,
-              destination: event.request.destination
-            });
-            
-            // Intercept and proxy the request
-            event.respondWith(
-              fetch(proxyUrl, {
-                method: event.request.method,
-                headers: event.request.headers,
-                body: event.request.body,
-                mode: event.request.mode,
-                credentials: event.request.credentials,
-                cache: event.request.cache,
-                redirect: event.request.redirect,
-                referrer: event.request.referrer,
-                referrerPolicy: event.request.referrerPolicy
-              }).then(function(response) {
-                console.log('[HA Proxy SW] Proxied response:', {
-                  url: proxyUrl,
-                  status: response.status,
-                  statusText: response.statusText,
-                  contentType: response.headers.get('content-type')
-                });
-                return response;
-              }).catch(function(error) {
-                console.error('[HA Proxy SW] Fetch error for proxied resource:', {
-                  url: proxyUrl,
-                  error: error.message,
-                  stack: error.stack
-                });
-                // Fallback to original request if proxy fails
-                return fetch(event.request);
-              })
-            );
-            return;
-          }
-          
-          console.log('[HA Proxy SW] Not proxying (not a resource):', path);
-        } else {
-          console.log('[HA Proxy SW] Not proxying (different origin):', url.origin);
+        if (url.origin !== currentOrigin) {
+          // Different origin - let it through normally
+          return;
         }
         
-        // For all other requests, use network (don't intercept)
-        // Note: We don't call event.respondWith() here, so the request goes through normally
+        const path = url.pathname;
+        const method = event.request.method;
+        const destination = event.request.destination;
+        
+        // Skip if already proxied - let it through normally
+        if (path.startsWith('/api/ha/static/')) {
+          return;
+        }
+        
+        // Skip API calls (not resources) - but ONLY if they're NOT resources
+        // Some API endpoints might serve resources, so we need to be careful
+        if (path.startsWith('/api/') && !path.startsWith('/api/ha/static/')) {
+          // Check if it's actually a resource being served through an API endpoint
+          const isResourceFile = /\\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
+          if (!isResourceFile && destination !== 'script' && destination !== 'style' && destination !== 'font' && destination !== 'image') {
+            // It's a real API call, not a resource
+            return;
+          }
+          // Otherwise, it might be a resource, continue to check below
+        }
+        
+        // AGGRESSIVE: Intercept ALL resources that look like they should be proxied
+        // This includes JS files from dynamic imports, CSS, fonts, images, etc.
+        const isResourceFile = /\\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
+        const isResourcePath = path.startsWith('/frontend_latest/') || 
+                               path.startsWith('/static/') ||
+                               path.startsWith('/homeassistant/') ||
+                               path.startsWith('/hacsfiles/') ||
+                               path.startsWith('/local/') ||
+                               path === '/manifest.json' ||
+                               path.startsWith('/service_worker.js');
+        
+        // Also check if destination indicates it's a script/style/font/image
+        // CRITICAL: destination === 'script' means it's a JS file being loaded (including dynamic imports)
+        const isResourceDestination = destination === 'script' || 
+                                      destination === 'style' || 
+                                      destination === 'font' || 
+                                      destination === 'image' ||
+                                      destination === 'manifest' ||
+                                      destination === 'worker';
+        
+        // Intercept if it's a resource file, resource path, or resource destination
+        // PRIORITY: If destination is 'script', ALWAYS intercept (this catches dynamic imports)
+        if (destination === 'script' || isResourceFile || isResourcePath || isResourceDestination) {
+          const proxyUrl = currentOrigin + '/api/ha/static' + path + (url.search || '');
+          
+          console.log('[HA Proxy SW] PROXYING resource:', {
+            original: requestUrl,
+            proxied: proxyUrl,
+            method: method,
+            destination: destination,
+            path: path,
+            isResourceFile: isResourceFile,
+            isResourcePath: isResourcePath,
+            isResourceDestination: isResourceDestination
+          });
+          
+          // Intercept and proxy the request
+          event.respondWith(
+            fetch(proxyUrl, {
+              method: method,
+              headers: event.request.headers,
+              body: event.request.body,
+              mode: event.request.mode,
+              credentials: event.request.credentials,
+              cache: event.request.cache,
+              redirect: event.request.redirect,
+              referrer: event.request.referrer,
+              referrerPolicy: event.request.referrerPolicy
+            }).then(function(response) {
+              if (!response.ok) {
+                console.error('[HA Proxy SW] Proxied request failed:', {
+                  url: proxyUrl,
+                  status: response.status,
+                  statusText: response.statusText
+                });
+              } else {
+                console.log('[HA Proxy SW] Proxied response OK:', {
+                  url: proxyUrl,
+                  status: response.status,
+                  contentType: response.headers.get('content-type')
+                });
+              }
+              return response;
+            }).catch(function(error) {
+              console.error('[HA Proxy SW] Fetch error for proxied resource:', {
+                url: proxyUrl,
+                error: error.message,
+                stack: error.stack
+              });
+              // Fallback to original request if proxy fails
+              return fetch(event.request).catch(function(fallbackError) {
+                console.error('[HA Proxy SW] Fallback fetch also failed:', fallbackError);
+                // Return a basic error response
+                return new Response('Resource not found', { 
+                  status: 404, 
+                  statusText: 'Not Found' 
+                });
+              });
+            })
+          );
+          return;
+        }
+        
+        // For all other requests to current origin, let them through normally
+        // (don't call event.respondWith(), so browser handles it)
       });
     `;
     
@@ -934,12 +967,26 @@ export async function registerRoutes(
         return `href="${newUrl}"`;
       })
       // Replace src attributes in script tags and other elements
-      .replace(/src="\/([^"]+)"/g, (match, path) => {
-        // API paths stay relative - will be handled by JavaScript with auth
+      // CRITICAL: This must catch ALL script src attributes, including type="module"
+      .replace(/<script([^>]*?)src="\/([^"]+)"([^>]*?)>/gi, (match, before, path, after) => {
+        // API paths stay relative
         if (path.startsWith('api/')) {
           return match;
         }
-        // All other resources go through proxy to avoid CORS
+        // All script resources go through proxy
+        const newUrl = `/api/ha/static/${path}`;
+        srcReplacements++;
+        replacedUrls.push(`<script src="/${path}"> -> <script src="${newUrl}">`);
+        return `<script${before}src="${newUrl}"${after}>`;
+      })
+      // Also catch src attributes in other tags (img, iframe, etc.)
+      .replace(/src="\/([^"]+)"/g, (match, path) => {
+        // Skip if already processed (in script tag above)
+        // API paths stay relative
+        if (path.startsWith('api/')) {
+          return match;
+        }
+        // All other resources go through proxy
         const newUrl = `/api/ha/static/${path}`;
         srcReplacements++;
         replacedUrls.push(`${match} -> src="${newUrl}"`);
@@ -973,88 +1020,61 @@ export async function registerRoutes(
               console.log('[HA Proxy] Injection script loaded and executing');
               
               // Register Service Worker to intercept ALL requests including dynamic imports
-              // CRITICAL: This intercepts ES6 dynamic imports that don't go through fetch
-              // IMPORTANT: Service Worker registration is async, but we need it active ASAP
+              // CRITICAL: This MUST run before ANY scripts are loaded
+              // Service Worker is the ONLY way to intercept ES6 dynamic imports
               if ('serviceWorker' in navigator) {
                 const swUrl = '/ha-proxy-sw.js';
                 
-                // Check if Service Worker is already controlling this page
-                if (navigator.serviceWorker.controller) {
-                  console.log('[HA Proxy] Service Worker already controlling page:', navigator.serviceWorker.controller.scriptURL);
-                } else {
-                  console.log('[HA Proxy] No Service Worker controller yet, registering...');
-                }
-                
-                // Unregister any existing service workers first to avoid conflicts
-                navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                  if (registrations.length > 0) {
-                    console.log('[HA Proxy] Found', registrations.length, 'existing SW registrations, unregistering...');
-                    return Promise.all(registrations.map(function(registration) {
-                      console.log('[HA Proxy] Unregistering existing SW:', registration.scope);
-                      return registration.unregister();
-                    }));
+                // IMMEDIATE registration - don't wait for anything
+                (function registerSW() {
+                  // Check if already controlling
+                  if (navigator.serviceWorker.controller) {
+                    console.log('[HA Proxy] Service Worker already controlling:', navigator.serviceWorker.controller.scriptURL);
+                    return;
                   }
-                }).then(function() {
-                  // Small delay to ensure unregistration completes
-                  return new Promise(function(resolve) {
-                    setTimeout(resolve, 100);
-                  });
-                }).then(function() {
-                  // Register new Service Worker from real file
-                  console.log('[HA Proxy] Registering Service Worker:', swUrl);
-                  return navigator.serviceWorker.register(swUrl, { 
+                  
+                  // Try to register immediately
+                  navigator.serviceWorker.register(swUrl, { 
                     scope: '/',
-                    updateViaCache: 'none' // Always fetch fresh SW
-                  });
-                }).then(function(registration) {
-                  console.log('[HA Proxy] Service Worker registered successfully:', {
-                    scope: registration.scope,
-                    installing: !!registration.installing,
-                    waiting: !!registration.waiting,
-                    active: !!registration.active
-                  });
-                  
-                  // Force immediate activation
-                  if (registration.installing) {
-                    console.log('[HA Proxy] SW is installing, waiting for activation...');
-                    registration.installing.addEventListener('statechange', function() {
-                      console.log('[HA Proxy] SW installing state changed:', this.state);
-                      if (this.state === 'installed') {
-                        console.log('[HA Proxy] SW installed, will activate on next navigation');
-                        // The SW will activate on next navigation or reload
-                      } else if (this.state === 'activated') {
-                        console.log('[HA Proxy] SW activated!');
-                      }
-                    });
-                  } else if (registration.waiting) {
-                    console.log('[HA Proxy] SW is waiting, posting skipWaiting message...');
-                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                  } else if (registration.active) {
-                    console.log('[HA Proxy] SW is already active!');
-                    if (navigator.serviceWorker.controller) {
-                      console.log('[HA Proxy] SW is controlling this page');
-                    } else {
-                      console.log('[HA Proxy] SW is active but not controlling yet, may need reload');
+                    updateViaCache: 'none'
+                  }).then(function(registration) {
+                    console.log('[HA Proxy] Service Worker registered:', registration.scope);
+                    
+                    // Force activation
+                    if (registration.waiting) {
+                      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
                     }
-                  }
-                  
-                  // Listen for controller change (when SW takes control)
-                  navigator.serviceWorker.addEventListener('controllerchange', function() {
-                    console.log('[HA Proxy] Service Worker controller changed!');
+                    
+                    // Check state
+                    if (registration.installing) {
+                      registration.installing.addEventListener('statechange', function() {
+                        if (this.state === 'activated') {
+                          console.log('[HA Proxy] SW activated and ready!');
+                        }
+                      });
+                    }
+                    
+                    // Listen for controller
+                    navigator.serviceWorker.addEventListener('controllerchange', function() {
+                      console.log('[HA Proxy] SW now controlling page!');
+                    });
+                  }).catch(function(error) {
+                    console.error('[HA Proxy] SW registration failed:', error);
+                    // Retry after a short delay
+                    setTimeout(registerSW, 1000);
                   });
-                  
-                  // Update to get latest version
-                  return registration.update();
-                }).catch(function(error) {
-                  console.error('[HA Proxy] Service Worker registration failed:', error);
-                  console.error('[HA Proxy] Error details:', {
-                    message: error.message,
-                    stack: error.stack,
-                    name: error.name
+                })();
+                
+                // Also unregister old workers in background (non-blocking)
+                navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                  registrations.forEach(function(registration) {
+                    if (registration.scope !== window.location.origin + '/') {
+                      registration.unregister();
+                    }
                   });
                 });
               } else {
-                console.warn('[HA Proxy] Service Workers not supported in this browser');
+                console.warn('[HA Proxy] Service Workers not supported');
               }
               // Home Assistant authentication configuration
               window.hassTokens = { access_token: "${haToken}" };
@@ -1165,29 +1185,52 @@ export async function registerRoutes(
               // This catches dynamic imports that resolve to absolute URLs
               const currentOrigin = window.location.origin;
               
-              // If it's an absolute URL to current origin and not already proxied, rewrite it IMMEDIATELY
+              // CRITICAL: Intercept ALL requests to current origin that look like resources
+              // This is a fallback in case Service Worker isn't active yet
               if (urlStr.startsWith(currentOrigin)) {
                 const path = urlStr.substring(currentOrigin.length);
-                // If it's not already proxied and not an API call, it should go through proxy
-                if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
-                  // Check if it looks like a resource file or resource path
-                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
-                  const isResourcePath = path.startsWith('/frontend_latest/') || 
-                                         path.startsWith('/static/') ||
-                                         path.startsWith('/homeassistant/') ||
-                                         path.startsWith('/hacsfiles/') ||
-                                         path.startsWith('/local/');
-                  
-                  if (isResourceFile || isResourcePath) {
-                    urlStr = '/api/ha/static' + path;
-                    console.log('[HA Proxy] Fetch: IMMEDIATE rewrite of absolute URL:', originalUrlStr, '->', urlStr);
-                    // Convert to absolute URL for fetch
-                    const proxyUrl = currentOrigin + urlStr;
-                    return originalFetch(proxyUrl, options).catch(function(error) {
-                      console.error('[HA Proxy] Fetch error for proxied resource:', proxyUrl, error);
-                      throw error;
-                    });
+                
+                // Skip if already proxied
+                if (path.startsWith('/api/ha/static/')) {
+                  // Already proxied, let it through
+                  return originalFetch(urlStr, options);
+                }
+                
+                // Skip real API calls (but not resources)
+                if (path.startsWith('/api/') && !path.startsWith('/api/ha/static/')) {
+                  // Check if it's actually a resource (has file extension)
+                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
+                  if (!isResourceFile) {
+                    // Real API call, let it through
+                    return originalFetch(urlStr, options);
                   }
+                  // Otherwise it's a resource, continue to proxy it
+                }
+                
+                // AGGRESSIVE: Intercept ALL resources
+                const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
+                const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                       path.startsWith('/static/') ||
+                                       path.startsWith('/homeassistant/') ||
+                                       path.startsWith('/hacsfiles/') ||
+                                       path.startsWith('/local/') ||
+                                       path === '/manifest.json';
+                
+                // If it's a resource, ALWAYS proxy it
+                if (isResourceFile || isResourcePath) {
+                  const proxyPath = '/api/ha/static' + path;
+                  const proxyUrl = currentOrigin + proxyPath;
+                  console.log('[HA Proxy] Fetch: INTERCEPTING resource (fallback):', {
+                    original: originalUrlStr,
+                    proxied: proxyUrl,
+                    path: path,
+                    isResourceFile: isResourceFile,
+                    isResourcePath: isResourcePath
+                  });
+                  return originalFetch(proxyUrl, options).catch(function(error) {
+                    console.error('[HA Proxy] Fetch error for proxied resource:', proxyUrl, error);
+                    throw error;
+                  });
                 }
               }
               
@@ -1337,7 +1380,7 @@ export async function registerRoutes(
             // Copy static methods
             window.URL.createObjectURL = originalURL.createObjectURL;
             window.URL.revokeObjectURL = originalURL.revokeObjectURL;
-
+            
             // Override createElement to intercept script/link tags
             const originalCreateElement = document.createElement;
             document.createElement = function(tagName, options) {
@@ -1395,7 +1438,7 @@ export async function registerRoutes(
                           console.log('[HA Proxy] Link href property rewritten:', originalValue, '->', hrefValue);
                         } else {
                           console.log('[HA Proxy] Link href property unchanged:', value);
-                        }
+                      }
                         this.setAttribute('href', hrefValue);
                       } else {
                         hrefValue = value;
