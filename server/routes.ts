@@ -907,7 +907,10 @@ export async function registerRoutes(
       // A long-lived access token cannot be refreshed, which causes the UI to fall back to the login screen.
       // We short-circuit /auth/token to always "succeed" with our server-side long-lived token so
       // the HA frontend stays authenticated and shows the dashboard.
-      if (req.path === "/token") {
+      // Express `req.path` here includes the "/auth" prefix (e.g. "/auth/token").
+      // Also, with the wildcard route "/auth/*", Express sets req.params[0] to the splat (e.g. "token").
+      const splat = (req.params as any)?.[0];
+      if (req.path === "/auth/token" || req.originalUrl.startsWith("/auth/token") || splat === "token") {
         const now = Date.now();
         const expiresInSeconds = 60 * 60 * 24 * 365 * 10; // 10 years
         const payload = {
@@ -1075,7 +1078,11 @@ export async function registerRoutes(
   });
 
   // Helper function to process and serve proxied dashboard HTML
-  function serveProxiedDashboard(html: string, res: any) {
+  function serveProxiedDashboard(
+    html: string,
+    res: any,
+    opts?: { dashboard?: string; view?: string },
+  ) {
     // Get the protocol (http/https) and convert to ws/wss for WebSocket
     const wsProtocol = haBaseUrl.startsWith("https") ? "wss" : "ws";
     const wsBaseUrl = haBaseUrl.replace(/^https?:/, wsProtocol);
@@ -1085,6 +1092,13 @@ export async function registerRoutes(
     let urlReplacements = 0;
     const replacedUrls: string[] = [];
     
+    const dashboard = opts?.dashboard || "lovelace";
+    const view = opts?.view || "default_view";
+    const allowedPath =
+      dashboard === "lovelace"
+        ? `/lovelace/${encodeURIComponent(view)}`
+        : `/${encodeURIComponent(dashboard)}/${encodeURIComponent(view)}`;
+
     // Modify the HTML to work in an iframe and inject authentication
     // Replace asset paths to go through our proxy to avoid CORS issues
     html = html
@@ -1191,12 +1205,71 @@ export async function registerRoutes(
       .replace(
         /<head>/i,
         `<head>
+          <style id="ha-proxy-kiosk-style">
+            /* Kiosk-mode: hide HA chrome so the client only sees the dashboard */
+            ha-sidebar,
+            ha-drawer,
+            app-drawer,
+            .drawer,
+            ha-menu-button,
+            app-toolbar,
+            app-header,
+            app-header-layout app-header,
+            app-header-layout app-toolbar {
+              display: none !important;
+            }
+            /* Remove drawer spacing */
+            ha-app-layout,
+            app-drawer-layout {
+              --app-drawer-width: 0px !important;
+              --app-drawer-content-container: 0px !important;
+            }
+          </style>
           <script>
             // BLOCKING SCRIPT - Must run before ANY other script
             // This intercepts resources BEFORE they are loaded
             // CRITICAL: Run immediately, before DOM is ready
             (function() {
               console.log('[HA Proxy] Injection script loaded and executing');
+
+              // Lock the HA frontend to a single dashboard view (client "kiosk" mode).
+              // This is a UI guardrail, not the primary security boundary (see note below).
+              const __HA_ALLOWED_PATH = ${JSON.stringify(allowedPath)};
+              (function lockToDashboard() {
+                function normalizePath(p) {
+                  if (!p) return '/';
+                  return p.endsWith('/') && p !== '/' ? p.slice(0, -1) : p;
+                }
+                const allowed = normalizePath(__HA_ALLOWED_PATH);
+
+                function enforce() {
+                  const current = normalizePath(window.location.pathname);
+                  if (current !== allowed) {
+                    console.warn('[HA Proxy] Blocking navigation away from allowed dashboard:', current, '->', allowed);
+                    // Preserve search/hash so HA doesn't get stuck in reload loops
+                    window.history.replaceState(null, '', allowed + window.location.search + window.location.hash);
+                  }
+                }
+
+                const origPush = window.history.pushState;
+                const origReplace = window.history.replaceState;
+                window.history.pushState = function() {
+                  // @ts-ignore
+                  const r = origPush.apply(this, arguments);
+                  enforce();
+                  return r;
+                };
+                window.history.replaceState = function() {
+                  // @ts-ignore
+                  const r = origReplace.apply(this, arguments);
+                  enforce();
+                  return r;
+                };
+                window.addEventListener('popstate', enforce);
+                // Run early + periodically (covers router-internal redirects)
+                enforce();
+                setInterval(enforce, 500);
+              })();
               
               // Register Service Worker to intercept ALL requests including dynamic imports
               // CRITICAL: This MUST run before ANY scripts are loaded
@@ -2145,12 +2218,12 @@ export async function registerRoutes(
 
         const html = await rootResponse.text();
         console.log("[HA Dashboard] Successfully loaded root dashboard, HTML length:", html.length);
-        return serveProxiedDashboard(html, res);
+        return serveProxiedDashboard(html, res, { dashboard, view });
       }
 
       const html = await response.text();
       console.log("[HA Dashboard] Successfully loaded dashboard, HTML length:", html.length);
-      return serveProxiedDashboard(html, res);
+      return serveProxiedDashboard(html, res, { dashboard, view });
     } catch (err: any) {
       console.error("[HA Dashboard] Error:", {
         error: err?.message,
