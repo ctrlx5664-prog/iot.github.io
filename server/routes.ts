@@ -593,7 +593,7 @@ export async function registerRoutes(
         statusText: response.statusText,
         contentType: response.headers.get("content-type"),
         path,
-        cleanPath,
+        normalizedPath,
       });
 
       if (!response.ok) {
@@ -612,7 +612,7 @@ export async function registerRoutes(
           statusText: response.statusText,
           targetUrl,
           path,
-          cleanPath,
+        normalizedPath,
           errorBody: errorBody || '(no body)',
         });
         
