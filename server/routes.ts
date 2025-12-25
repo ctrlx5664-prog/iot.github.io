@@ -541,21 +541,32 @@ export async function registerRoutes(
       // Normalize path:
       // - strip leading slash
       // - fix double /static/ (static/static/ -> static/)
-      // - add /static/ prefix when missing for known asset roots (fonts, frontend_latest, etc.)
+      // - remap community/hacs/local resources
+      // - add /static/ prefix when missing for core asset roots
       let normalizedPath = path.startsWith('/') ? path.substring(1) : path;
       if (normalizedPath.startsWith('static/static/')) {
         normalizedPath = `static/${normalizedPath.substring('static/static/'.length)}`;
         console.log("[HA Static] Fixed double /static/ path:", path, "->", normalizedPath);
       }
+
+      // Map Home Assistant community/hacs/local assets to the correct served path
+      if (normalizedPath.startsWith('homeassistant/www/community/')) {
+        const rest = normalizedPath.substring('homeassistant/www/'.length);
+        normalizedPath = `hacsfiles/${rest}`;
+        console.log("[HA Static] Mapped community asset:", path, "->", normalizedPath);
+      } else if (normalizedPath.startsWith('local/')) {
+        const rest = normalizedPath.substring('local/'.length);
+        normalizedPath = `hacsfiles/${rest}`;
+        console.log("[HA Static] Mapped local asset to hacsfiles:", path, "->", normalizedPath);
+      }
+
       const needsStaticPrefix =
         !normalizedPath.startsWith('static/') &&
         (
           normalizedPath.startsWith('fonts/') ||
           normalizedPath.startsWith('frontend_latest/') ||
           normalizedPath.startsWith('homeassistant/') ||
-          normalizedPath.startsWith('hacsfiles/') ||
-          normalizedPath.startsWith('local/') ||
-          normalizedPath.startsWith('community/')
+          normalizedPath.startsWith('hacsfiles/')
         );
       if (needsStaticPrefix) {
         normalizedPath = `static/${normalizedPath}`;
