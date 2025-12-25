@@ -23,6 +23,7 @@ import { log } from "./logger";
       }
     });
 
+    
     ws.on("close", () => {
       console.log("WebSocket client disconnected");
     });
