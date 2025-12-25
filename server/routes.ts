@@ -1253,92 +1253,112 @@ export async function registerRoutes(
               // This is a UI guardrail, not the primary security boundary (see note below).
               const __HA_ALLOWED_PATH = ${JSON.stringify(allowedPath)};
 
-              // Kiosk mode for HA chrome: HA renders most of its UI inside nested shadow roots,
-              // so plain CSS selectors are often not enough. We aggressively hide known chrome
-              // elements in both light DOM and shadow DOM, and keep re-applying on mutations.
+              // Kiosk mode for HA chrome:
+              // HA uses nested *open* shadow roots. Scanning and mutating every element can stall
+              // the UI, so instead we inject a small CSS snippet into any discovered shadow root.
+              // Also, allow disabling kiosk for debugging: add ?kiosk=0 to the URL.
               (function enableKioskMode() {
-                const HIDE_SELECTORS = [
-                  // Common chrome containers
-                  'ha-sidebar',
-                  'ha-drawer',
-                  'app-drawer',
-                  'app-header',
-                  'app-toolbar',
-                  'ha-top-app-bar',
-                  'ha-menu-button',
-                  // Header buttons / edit / overflow
-                  'ha-icon-button[title="Edit dashboard"]',
-                  'ha-icon-button[title="Editar painel"]',
-                  'ha-icon-button[title="Edit"]',
-                  'ha-icon-button[title="Editar"]',
-                  'ha-button-menu[title="Menu"]',
-                  'ha-button-menu[title="More"]',
-                  'ha-button-menu[title="Mais"]',
-                  'ha-button-menu[title="Overflow menu"]',
-                  // Some builds use paper-icon-button / mwc-icon-button
-                  'paper-icon-button[title="Edit dashboard"]',
-                  'paper-icon-button[title="Editar painel"]',
-                  'mwc-icon-button[title="Edit dashboard"]',
-                  'mwc-icon-button[title="Editar painel"]',
-                  // Config links
-                  'a[href="/config/dashboard"]',
-                ];
-
-                const HIDE_STYLE = 'display: none !important; visibility: hidden !important;';
-
-                function tryHideInRoot(root) {
-                  try {
-                    for (const sel of HIDE_SELECTORS) {
-                      const nodes = root.querySelectorAll(sel);
-                      nodes.forEach((n) => {
-                        if (!n || !n.style) return;
-                        // Avoid thrashing styles
-                        if (n.getAttribute && n.getAttribute('data-ha-proxy-kiosk') === '1') return;
-                        n.setAttribute && n.setAttribute('data-ha-proxy-kiosk', '1');
-                        n.style.cssText += ';' + HIDE_STYLE;
-                      });
-                    }
-                  } catch (e) {
-                    // ignore
-                  }
-                }
-
-                function walkShadow(node) {
-                  if (!node) return;
-                  // Light DOM
-                  if (node.querySelectorAll) tryHideInRoot(node);
-
-                  // Shadow DOM
-                  const sr = node.shadowRoot;
-                  if (sr) {
-                    tryHideInRoot(sr);
-                    // Walk elements within shadow root
-                    const children = sr.querySelectorAll('*');
-                    children.forEach((c) => walkShadow(c));
-                  }
-                }
-
-                function apply() {
-                  try {
-                    walkShadow(document);
-                    // Also walk known HA roots if present
-                    const haRoot = document.querySelector('home-assistant, home-assistant-main, ha-app-layout');
-                    if (haRoot) walkShadow(haRoot);
-                  } catch (e) {
-                    // ignore
-                  }
-                }
-
-                // Run early + keep re-applying (HA re-renders frequently)
-                apply();
-                document.addEventListener('DOMContentLoaded', apply, { once: true });
-                setInterval(apply, 750);
-
                 try {
-                  const mo = new MutationObserver(() => apply());
+                  const sp = new URLSearchParams(window.location.search || '');
+                  const kioskParam = sp.get('kiosk');
+                  if (kioskParam === '0' || kioskParam === 'false') {
+                    console.warn('[HA Proxy] Kiosk mode disabled via query param');
+                    return;
+                  }
+
+                  const KIOSK_STYLE_ID = 'ha-proxy-kiosk-style-shadow';
+                  const KIOSK_CSS = ${JSON.stringify(`
+/* Hide HA chrome */
+ha-sidebar,
+ha-drawer,
+app-drawer,
+ha-menu-button,
+ha-top-app-bar,
+app-header,
+app-toolbar,
+app-header-layout app-header,
+app-header-layout app-toolbar {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Hide edit/overflow buttons (best-effort, titles depend on locale) */
+ha-icon-button[title*="Edit" i],
+ha-icon-button[title*="Editar" i],
+ha-button-menu[title*="More" i],
+ha-button-menu[title*="Mais" i],
+ha-button-menu[title*="Menu" i],
+paper-icon-button[title*="Edit" i],
+paper-icon-button[title*="Editar" i],
+mwc-icon-button[title*="Edit" i],
+mwc-icon-button[title*="Editar" i],
+a[href="/config/dashboard"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Remove drawer spacing */
+ha-app-layout,
+app-drawer-layout {
+  --app-drawer-width: 0px !important;
+  --app-drawer-content-container: 0px !important;
+  --app-header-height: 0px !important;
+  --mdc-top-app-bar-row-height: 0px !important;
+}
+`).trim()};
+
+                  function ensureStyleInRoot(root) {
+                    try {
+                      if (!root) return;
+                      // ShadowRoot doesn't have getElementById; querySelector works.
+                      if (root.querySelector && root.querySelector('#' + KIOSK_STYLE_ID)) return;
+                      const styleEl = document.createElement('style');
+                      styleEl.id = KIOSK_STYLE_ID;
+                      styleEl.textContent = KIOSK_CSS;
+                      root.appendChild(styleEl);
+                    } catch (e) {
+                      // ignore
+                    }
+                  }
+
+                  function scanForShadowRoots(startNode) {
+                    try {
+                      const rootEl = (startNode && startNode.nodeType === 1)
+                        ? startNode
+                        : document.documentElement;
+                      const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_ELEMENT);
+                      let n = walker.currentNode;
+                      while (n) {
+                        // @ts-ignore
+                        if (n.shadowRoot) {
+                          // @ts-ignore
+                          ensureStyleInRoot(n.shadowRoot);
+                        }
+                        n = walker.nextNode();
+                      }
+                    } catch (e) {
+                      // ignore
+                    }
+                  }
+
+                  // Initial injection
+                  ensureStyleInRoot(document.head || document.documentElement);
+                  scanForShadowRoots(document.documentElement);
+
+                  // Keep up with re-renders (only scan added subtrees)
+                  const mo = new MutationObserver((mutations) => {
+                    for (const m of mutations) {
+                      for (const added of (m.addedNodes || [])) {
+                        // Element nodes only
+                        if (added && added.nodeType === 1) {
+                          scanForShadowRoots(added);
+                        }
+                      }
+                    }
+                  });
                   mo.observe(document.documentElement, { childList: true, subtree: true });
                 } catch (e) {
-                  // ignore
+                  console.warn('[HA Proxy] Kiosk mode init failed:', e);
                 }
               })();
 
