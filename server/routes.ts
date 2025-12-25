@@ -538,13 +538,27 @@ export async function registerRoutes(
     }
 
     try {
-      // Normalize path: fix double /static/ paths (e.g., /static/fonts/... -> /fonts/...)
-      // This can happen if HTML replacement creates /api/ha/static/static/...
+      // Normalize path:
+      // - strip leading slash
+      // - fix double /static/ (static/static/ -> static/)
+      // - add /static/ prefix when missing for known asset roots (fonts, frontend_latest, etc.)
       let normalizedPath = path.startsWith('/') ? path.substring(1) : path;
-      // Fix double /static/ at the beginning: static/static/... -> static/...
       if (normalizedPath.startsWith('static/static/')) {
-        normalizedPath = normalizedPath.substring(7); // Remove 'static/'
+        normalizedPath = `static/${normalizedPath.substring('static/static/'.length)}`;
         console.log("[HA Static] Fixed double /static/ path:", path, "->", normalizedPath);
+      }
+      const needsStaticPrefix =
+        !normalizedPath.startsWith('static/') &&
+        (
+          normalizedPath.startsWith('fonts/') ||
+          normalizedPath.startsWith('frontend_latest/') ||
+          normalizedPath.startsWith('homeassistant/') ||
+          normalizedPath.startsWith('hacsfiles/') ||
+          normalizedPath.startsWith('local/') ||
+          normalizedPath.startsWith('community/')
+        );
+      if (needsStaticPrefix) {
+        normalizedPath = `static/${normalizedPath}`;
       }
       const targetUrl = `${haBaseUrl}/${normalizedPath}${queryString}`;
       console.log("[HA Static] Proxying to HA:", {
