@@ -746,6 +746,12 @@ export async function registerRoutes(
         const path = url.pathname;
         const method = event.request.method;
         const destination = event.request.destination;
+
+        // Let /auth/* go through normally; our server handles these at the same origin.
+        // (Routing /auth/* through /api/ha/static/* breaks /auth/token and can lead to 400s.)
+        if (path.startsWith('/auth/')) {
+          return;
+        }
         
         // Skip if already proxied - let it through normally
         if (path.startsWith('/api/ha/static/')) {
@@ -805,10 +811,6 @@ export async function registerRoutes(
             const pathAfterLocal = path.substring('/local/'.length);
             mappedPath = '/hacsfiles/' + pathAfterLocal;
             console.log('[HA Proxy SW] Mapped /local/ path:', path, '->', mappedPath);
-          } else if (path.startsWith('/auth/')) {
-            // Keep /auth/* but ensure it goes through our /api/ha/static proxy so it stays same-origin.
-            mappedPath = path;
-            console.log('[HA Proxy SW] Ensuring /auth/ stays proxied:', path, '->', mappedPath);
           }
           
           const proxyUrl = currentOrigin + '/api/ha/static' + mappedPath + (url.search || '');
@@ -1411,12 +1413,11 @@ export async function registerRoutes(
               
               // Relative URLs - use proxy
               if (url.startsWith('/')) {
-                // IMPORTANT: DO NOT leave /auth/* as-is.
-                // If /auth/* escapes our origin, the HA origin will be iframed and blocked by X-Frame-Options.
+                // /auth/* must stay on our origin so our Express "/auth/*" proxy can handle it.
+                // Do NOT send it through /api/ha/static/* (breaks /auth/token and login flow).
                 if (url.startsWith('/auth/')) {
-                  const rewritten = '/api/ha/static' + url;
-                  console.log('[HA Proxy] Rewriting auth URL to stay same-origin:', url, '->', rewritten);
-                  return rewritten;
+                  console.log('[HA Proxy] Keeping auth URL same-origin:', url);
+                  return url;
                 }
                 // Check if it's a static asset path (not API)
                 if (!url.startsWith('/api/')) {
@@ -1471,12 +1472,9 @@ export async function registerRoutes(
                   return originalFetch(urlStr, options);
                 }
                 
-                // IMPORTANT: DO NOT skip /auth/*.
-                // Proxy it same-origin to avoid the browser following redirects to HA origin (X-Frame-Options block).
+                // /auth/* is handled by our server proxy at the same origin. Let it through unchanged.
                 if (path.startsWith('/auth/')) {
-                  const proxiedAuth = currentOrigin + '/api/ha/static' + path;
-                  console.log('[HA Proxy] Fetch: Proxying auth endpoint same-origin:', path, '->', proxiedAuth);
-                  return originalFetch(proxiedAuth, options);
+                  return originalFetch(urlStr, options);
                 }
                 
                 // Skip real API calls (but not resources)

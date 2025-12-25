@@ -7,6 +7,43 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Home Assistant asset paths that sometimes escape our HTML rewriter / SW.
+# Route them into the same /api/ha/static/* proxy so we don't get origin 404s.
+[[redirects]]
+  from = "/homeassistant/*"
+  to = "/.netlify/functions/api/ha/static/homeassistant/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/local/*"
+  to = "/.netlify/functions/api/ha/static/local/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/hacsfiles/*"
+  to = "/.netlify/functions/api/ha/static/hacsfiles/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/frontend_latest/*"
+  to = "/.netlify/functions/api/ha/static/frontend_latest/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/sw-modern.js"
+  to = "/.netlify/functions/api/ha/static/sw-modern.js"
+  status = 200
+
+[[redirects]]
+  from = "/service_worker.js"
+  to = "/.netlify/functions/api/ha/static/service_worker.js"
+  status = 200
+
+[[redirects]]
+  from = "/manifest.json"
+  to = "/.netlify/functions/api/ha/static/manifest.json"
+  status = 200
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
