@@ -22,10 +22,10 @@ export const handler: Handler = async (event, context) => {
     // Special case: /ha-proxy-sw.js should map to /ha-proxy-sw.js (not /api/ha-proxy-sw.js)
     if (normalizedRest === "/ha-proxy-sw.js") {
       event = { ...event, path: "/ha-proxy-sw.js" };
-    } else if (normalizedRest.startsWith("/auth/")) {
-      // Home Assistant auth endpoints must stay top-level (/auth/*), not /api/auth/*.
-      // Otherwise our Express "/auth/*" proxy (and /auth/token short-circuit) won't run.
-      event = { ...event, path: normalizedRest };
+    } else if (normalizedRest.startsWith("/ha-auth/")) {
+      // Home Assistant auth endpoints are served at top-level "/auth/*" by Express.
+      // We route Netlify "/ha-auth/*" here to avoid conflicting with app "/api/auth/*".
+      event = { ...event, path: normalizedRest.replace(/^\/ha-auth\//, "/auth/") };
     } else {
       // All other paths (including /api/auth/* for app auth) go under /api/*
       // App auth routes are registered as /api/auth/* in server/routes.ts

@@ -55,8 +55,8 @@
   to = "/.netlify/functions/api/ha-proxy-sw.js"
   status = 200
 
-# Home Assistant auth endpoints - redirect to serverless function
 [[redirects]]
   from = "/auth/*"
-  to = "/.netlify/functions/api/auth/:splat"
+  # Home Assistant auth endpoints - keep separate from app "/api/auth/*" routes.
+  to = "/.netlify/functions/api/ha-auth/:splat"
   status = 200
