@@ -1215,7 +1215,19 @@ export async function registerRoutes(
             app-toolbar,
             app-header,
             app-header-layout app-header,
-            app-header-layout app-toolbar {
+            app-header-layout app-toolbar,
+            ha-app-layout app-header,
+            ha-app-layout app-toolbar,
+            ha-top-app-bar,
+            ha-icon-button[title="Edit dashboard"],
+            ha-icon-button[title="Editar painel"],
+            ha-icon-button[title="Edit"],
+            ha-icon-button[title="Editar"],
+            ha-button-menu[title="Menu"],
+            ha-button-menu[title="More"],
+            ha-button-menu[title="Mais"],
+            ha-button-menu[title="Overflow menu"],
+            a[href="/config/dashboard"] {
               display: none !important;
             }
             /* Remove drawer spacing */
@@ -1223,6 +1235,11 @@ export async function registerRoutes(
             app-drawer-layout {
               --app-drawer-width: 0px !important;
               --app-drawer-content-container: 0px !important;
+            }
+            /* Also collapse top app bar height if it still takes space */
+            ha-app-layout {
+              --app-header-height: 0px !important;
+              --mdc-top-app-bar-row-height: 0px !important;
             }
           </style>
           <script>
@@ -1235,6 +1252,96 @@ export async function registerRoutes(
               // Lock the HA frontend to a single dashboard view (client "kiosk" mode).
               // This is a UI guardrail, not the primary security boundary (see note below).
               const __HA_ALLOWED_PATH = ${JSON.stringify(allowedPath)};
+
+              // Kiosk mode for HA chrome: HA renders most of its UI inside nested shadow roots,
+              // so plain CSS selectors are often not enough. We aggressively hide known chrome
+              // elements in both light DOM and shadow DOM, and keep re-applying on mutations.
+              (function enableKioskMode() {
+                const HIDE_SELECTORS = [
+                  // Common chrome containers
+                  'ha-sidebar',
+                  'ha-drawer',
+                  'app-drawer',
+                  'app-header',
+                  'app-toolbar',
+                  'ha-top-app-bar',
+                  'ha-menu-button',
+                  // Header buttons / edit / overflow
+                  'ha-icon-button[title="Edit dashboard"]',
+                  'ha-icon-button[title="Editar painel"]',
+                  'ha-icon-button[title="Edit"]',
+                  'ha-icon-button[title="Editar"]',
+                  'ha-button-menu[title="Menu"]',
+                  'ha-button-menu[title="More"]',
+                  'ha-button-menu[title="Mais"]',
+                  'ha-button-menu[title="Overflow menu"]',
+                  // Some builds use paper-icon-button / mwc-icon-button
+                  'paper-icon-button[title="Edit dashboard"]',
+                  'paper-icon-button[title="Editar painel"]',
+                  'mwc-icon-button[title="Edit dashboard"]',
+                  'mwc-icon-button[title="Editar painel"]',
+                  // Config links
+                  'a[href="/config/dashboard"]',
+                ];
+
+                const HIDE_STYLE = 'display: none !important; visibility: hidden !important;';
+
+                function tryHideInRoot(root) {
+                  try {
+                    for (const sel of HIDE_SELECTORS) {
+                      const nodes = root.querySelectorAll(sel);
+                      nodes.forEach((n) => {
+                        if (!n || !n.style) return;
+                        // Avoid thrashing styles
+                        if (n.getAttribute && n.getAttribute('data-ha-proxy-kiosk') === '1') return;
+                        n.setAttribute && n.setAttribute('data-ha-proxy-kiosk', '1');
+                        n.style.cssText += ';' + HIDE_STYLE;
+                      });
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+
+                function walkShadow(node) {
+                  if (!node) return;
+                  // Light DOM
+                  if (node.querySelectorAll) tryHideInRoot(node);
+
+                  // Shadow DOM
+                  const sr = node.shadowRoot;
+                  if (sr) {
+                    tryHideInRoot(sr);
+                    // Walk elements within shadow root
+                    const children = sr.querySelectorAll('*');
+                    children.forEach((c) => walkShadow(c));
+                  }
+                }
+
+                function apply() {
+                  try {
+                    walkShadow(document);
+                    // Also walk known HA roots if present
+                    const haRoot = document.querySelector('home-assistant, home-assistant-main, ha-app-layout');
+                    if (haRoot) walkShadow(haRoot);
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+
+                // Run early + keep re-applying (HA re-renders frequently)
+                apply();
+                document.addEventListener('DOMContentLoaded', apply, { once: true });
+                setInterval(apply, 750);
+
+                try {
+                  const mo = new MutationObserver(() => apply());
+                  mo.observe(document.documentElement, { childList: true, subtree: true });
+                } catch (e) {
+                  // ignore
+                }
+              })();
+
               (function lockToDashboard() {
                 function normalizePath(p) {
                   if (!p) return '/';
