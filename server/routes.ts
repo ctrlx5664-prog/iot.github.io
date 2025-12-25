@@ -8,16 +8,15 @@ import {
   insertTvSchema,
   updateTvSchema,
   insertVideoSchema,
-  insertOrganizationSchema,
-  createInviteSchema,
   type Light,
   type Tv,
 } from "@shared/schema";
 import { ZodError } from "zod";
-import crypto, { randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import crypto from "crypto";
 import { getDb } from "./db/client";
-import { users, organizations, userOrganizations, organizationInvites } from "./db/schema";
-import { eq, and } from "drizzle-orm";
+import { users } from "./db/schema";
+import { eq } from "drizzle-orm";
+import { log } from "./logger";
 
 export type BroadcastDeviceUpdate = (
   type: "light_update" | "tv_update",
@@ -35,8 +34,6 @@ export async function registerRoutes(
 
   // --- Auth helpers (JWT, simple credential check) ---
   const jwtSecret = process.env.JWT_SECRET ?? "please-change-me";
-  const defaultAuthUsername = process.env.AUTH_USERNAME ?? "admin";
-  const defaultAuthPassword = process.env.AUTH_PASSWORD ?? "changeme";
 
   function base64url(input: any) {
     return input
@@ -80,105 +77,24 @@ export async function registerRoutes(
 
   function getBearerToken(req: any) {
     const authHeader = req.headers?.authorization ?? "";
-    const [scheme, token] = authHeader.split(" ");
-    if (scheme?.toLowerCase() !== "bearer" || !token) return null;
-    return token;
+    if (authHeader.startsWith("Bearer ")) {
+      return authHeader.substring(7);
+    }
+    return null;
   }
 
-  // --- User storage helpers (DB-backed auth) ---
-  function hashPassword(password: string) {
-    const salt = randomBytes(16).toString("hex");
-    const derived = scryptSync(password, salt, 64).toString("hex");
-    return `${salt}:${derived}`;
+  function hashPassword(password: string): string {
+    return crypto.createHmac("sha256", jwtSecret).update(password).digest("hex");
   }
 
-  function verifyPassword(password: string, stored: string) {
-    const [salt, hashed] = stored.split(":");
-    if (!salt || !hashed) return false;
-    const derived = scryptSync(password, salt, 64).toString("hex");
-    return timingSafeEqual(Buffer.from(hashed, "hex"), Buffer.from(derived, "hex"));
+  function verifyPassword(password: string, hash: string): boolean {
+    return hashPassword(password) === hash;
   }
 
   async function findUser(username: string) {
     const db = await getDb();
-    const rows = await db.select().from(users).where(eq(users.username, username)).limit(1);
-    return rows[0];
-  }
-
-  async function ensureDefaultUser() {
-    const db = await getDb();
-    const existing = await db.select().from(users).where(eq(users.username, defaultAuthUsername)).limit(1);
-    if (existing.length > 0) return;
-    const passwordHash = hashPassword(defaultAuthPassword);
-    await db.insert(users).values({ username: defaultAuthUsername, passwordHash });
-  }
-
-  await ensureDefaultUser();
-
-  // --- Home Assistant proxy helpers ---
-  const haBaseUrl = (process.env.HA_BASE_URL ?? "").replace(/\/+$/, "");
-  const haToken = process.env.HA_TOKEN ?? "";
-
-  async function haRequest(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<{ status: number; json: any }> {
-    // Log configuration
-    console.log("[HA Proxy] Config check:", {
-      haBaseUrl: haBaseUrl || "(not set)",
-      haTokenSet: haToken ? `${haToken.substring(0, 10)}...` : "(not set)",
-      haTokenLength: haToken?.length || 0,
-    });
-
-    if (!haBaseUrl || !haToken) {
-      console.error("[HA Proxy] ERROR: Missing configuration", {
-        haBaseUrl: !!haBaseUrl,
-        haToken: !!haToken,
-      });
-      return { status: 500, json: { error: "HA_BASE_URL or HA_TOKEN not configured" } };
-    }
-
-    const url = `${haBaseUrl}${path}`;
-    console.log("[HA Proxy] Request:", {
-      method,
-      url,
-      hasBody: !!body,
-    });
-
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${haToken}`,
-          "Content-Type": "application/json",
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-
-      const text = await res.text();
-      let json: any = text;
-      try {
-        json = text ? JSON.parse(text) : {};
-      } catch {
-        json = { message: text };
-      }
-
-      console.log("[HA Proxy] Response:", {
-        status: res.status,
-        ok: res.ok,
-        responseLength: text.length,
-        jsonPreview: typeof json === "object" ? JSON.stringify(json).substring(0, 200) : json,
-      });
-
-      return { status: res.status, json };
-    } catch (err: any) {
-      console.error("[HA Proxy] Fetch error:", {
-        message: err?.message,
-        cause: err?.cause,
-      });
-      return { status: 500, json: { error: `HA request failed: ${err?.message}` } };
-    }
+    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return result[0] || null;
   }
 
   // --- Auth routes ---
@@ -220,294 +136,9 @@ export async function registerRoutes(
     res.json({ user: { username: payload.sub } });
   });
 
-  // Protect all other /api routes
-  app.use("/api", (req: any, res: any, next: any) => {
-    // Allow auth routes without authentication
-    if (req.path.startsWith("/auth")) {
-      return next();
-    }
-    // Allow Home Assistant routes without user authentication
-    // (they use HA token configured on server)
-    if (req.path.startsWith("/ha") || req.path.startsWith("/states") || req.path.startsWith("/services") || req.path.startsWith("/websocket")) {
-      return next();
-    }
-    // Allow HA static asset routes
-    if (req.path.startsWith("/ha/static/")) {
-      return next();
-    }
-    const token = getBearerToken(req);
-    const payload = token ? verifyJwt(token) : null;
-    if (!payload) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    (req as any).user = payload;
-    next();
-  });
-
-  // --- Organization routes ---
-  
-  // Get user's organizations
-  app.get("/api/organizations", async (req: any, res) => {
-    try {
-      const db = await getDb();
-      const user = await findUser(req.user?.sub);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      
-      const memberships = await db.select().from(userOrganizations).where(eq(userOrganizations.userId, user.id));
-      const orgIds = memberships.map((m: any) => m.organizationId);
-      
-      if (orgIds.length === 0) return res.json([]);
-      
-      const orgs = await Promise.all(
-        orgIds.map(async (orgId: string) => {
-          const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
-          const membership = memberships.find((m: any) => m.organizationId === orgId);
-          return org ? { ...org, role: membership?.role } : null;
-        })
-      );
-      
-      res.json(orgs.filter(Boolean));
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to fetch organizations" });
-    }
-  });
-
-  // Create organization
-  app.post("/api/organizations", async (req: any, res) => {
-    try {
-      const data = insertOrganizationSchema.parse(req.body);
-      const db = await getDb();
-      const user = await findUser(req.user?.sub);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      
-      const [org] = await db.insert(organizations).values({
-        name: data.name,
-        description: data.description,
-      }).returning();
-      
-      // Add creator as owner
-      await db.insert(userOrganizations).values({
-        userId: user.id,
-        organizationId: org.id,
-        role: "owner",
-      });
-      
-      res.status(201).json({ ...org, role: "owner" });
-    } catch (error: any) {
-      if (error instanceof ZodError) {
-        return res.status(400).json({ error: "Invalid organization data", details: error.errors });
-      }
-      res.status(500).json({ error: "Failed to create organization" });
-    }
-  });
-
-  // Get single organization
-  app.get("/api/organizations/:id", async (req: any, res) => {
-    try {
-      const db = await getDb();
-      const user = await findUser(req.user?.sub);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      
-      const [membership] = await db.select().from(userOrganizations)
-        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
-      
-      if (!membership) return res.status(403).json({ error: "Not a member of this organization" });
-      
-      const [org] = await db.select().from(organizations).where(eq(organizations.id, req.params.id));
-      if (!org) return res.status(404).json({ error: "Organization not found" });
-      
-      res.json({ ...org, role: membership.role });
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to fetch organization" });
-    }
-  });
-
-  // Get organization members
-  app.get("/api/organizations/:id/members", async (req: any, res) => {
-    try {
-      const db = await getDb();
-      const user = await findUser(req.user?.sub);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      
-      const [membership] = await db.select().from(userOrganizations)
-        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
-      
-      if (!membership) return res.status(403).json({ error: "Not a member of this organization" });
-      
-      const members = await db.select().from(userOrganizations).where(eq(userOrganizations.organizationId, req.params.id));
-      
-      const memberDetails = await Promise.all(
-        members.map(async (m: any) => {
-          const [u] = await db.select().from(users).where(eq(users.id, m.userId));
-          return { id: m.id, userId: m.userId, username: u?.username, role: m.role, invitedAt: m.invitedAt };
-        })
-      );
-      
-      res.json(memberDetails);
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to fetch members" });
-    }
-  });
-
-  // Create invite
-  app.post("/api/organizations/:id/invites", async (req: any, res) => {
-    try {
-      const db = await getDb();
-      const user = await findUser(req.user?.sub);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      
-      const [membership] = await db.select().from(userOrganizations)
-        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
-      
-      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
-        return res.status(403).json({ error: "Only owners and admins can create invites" });
-      }
-      
-      const { role = "member", invitedEmail } = req.body || {};
-      const inviteCode = randomBytes(16).toString("hex");
-      
-      const [invite] = await db.insert(organizationInvites).values({
-        organizationId: req.params.id,
-        invitedByUserId: user.id,
-        invitedEmail: invitedEmail || null,
-        inviteCode,
-        role,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-      }).returning();
-      
-      res.status(201).json(invite);
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to create invite" });
-    }
-  });
-
-  // Get organization invites
-  app.get("/api/organizations/:id/invites", async (req: any, res) => {
-    try {
-      const db = await getDb();
-      const user = await findUser(req.user?.sub);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      
-      const [membership] = await db.select().from(userOrganizations)
-        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
-      
-      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
-        return res.status(403).json({ error: "Only owners and admins can view invites" });
-      }
-      
-      const invites = await db.select().from(organizationInvites)
-        .where(eq(organizationInvites.organizationId, req.params.id));
-      
-      res.json(invites);
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to fetch invites" });
-    }
-  });
-
-  // Accept invite (join organization)
-  app.post("/api/invites/:code/accept", async (req: any, res) => {
-    try {
-      const db = await getDb();
-      const user = await findUser(req.user?.sub);
-      if (!user) return res.status(401).json({ error: "User not found" });
-      
-      const [invite] = await db.select().from(organizationInvites)
-        .where(eq(organizationInvites.inviteCode, req.params.code));
-      
-      if (!invite) return res.status(404).json({ error: "Invite not found" });
-      if (invite.usedAt) return res.status(400).json({ error: "Invite already used" });
-      if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
-        return res.status(400).json({ error: "Invite expired" });
-      }
-      
-      // Check if already a member
-      const [existing] = await db.select().from(userOrganizations)
-        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, invite.organizationId)));
-      
-      if (existing) return res.status(400).json({ error: "Already a member" });
-      
-      // Add user to organization
-      await db.insert(userOrganizations).values({
-        userId: user.id,
-        organizationId: invite.organizationId,
-        role: invite.role,
-      });
-      
-      // Mark invite as used
-      await db.update(organizationInvites)
-        .set({ usedAt: new Date() })
-        .where(eq(organizationInvites.id, invite.id));
-      
-      const [org] = await db.select().from(organizations).where(eq(organizations.id, invite.organizationId));
-      
-      res.json({ message: "Joined organization", organization: org });
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to accept invite" });
-    }
-  });
-
-  // --- Home Assistant proxy routes ---
-  // Routes under /api/ha/ for explicit proxy calls
-  app.get("/api/ha/states", async (_req, res) => {
-    console.log("[HA Route] GET /api/ha/states called");
-    const result = await haRequest("GET", "/api/states");
-    console.log("[HA Route] GET /api/ha/states result:", result.status);
-    return res.status(result.status).json(result.json);
-  });
-
-  app.get("/api/ha/states/:entityId", async (req, res) => {
-    const { entityId } = req.params;
-    console.log("[HA Route] GET /api/ha/states/:entityId called", { entityId });
-    const result = await haRequest("GET", `/api/states/${encodeURIComponent(entityId)}`);
-    console.log("[HA Route] GET /api/ha/states/:entityId result:", result.status);
-    return res.status(result.status).json(result.json);
-  });
-
-  app.post("/api/ha/services/:domain/:service", async (req, res) => {
-    const { domain, service } = req.params;
-    console.log("[HA Route] POST /api/ha/services called", { domain, service, body: req.body });
-    const result = await haRequest(
-      "POST",
-      `/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`,
-      req.body ?? {},
-    );
-    console.log("[HA Route] POST /api/ha/services result:", result.status);
-    return res.status(result.status).json(result.json);
-  });
-
-  // Routes matching Home Assistant API structure for iframe dashboard
-  // These allow the embedded HA frontend to make API calls through our proxy
-  app.get("/api/states", async (_req, res) => {
-    const result = await haRequest("GET", "/api/states");
-    return res.status(result.status).json(result.json);
-  });
-
-  app.get("/api/states/:entityId", async (req, res) => {
-    const { entityId } = req.params;
-    const result = await haRequest("GET", `/api/states/${encodeURIComponent(entityId)}`);
-    return res.status(result.status).json(result.json);
-  });
-
-  app.post("/api/services/:domain/:service", async (req, res) => {
-    const { domain, service } = req.params;
-    const result = await haRequest(
-      "POST",
-      `/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`,
-      req.body ?? {},
-    );
-    return res.status(result.status).json(result.json);
-  });
-
-  // WebSocket proxy for Home Assistant (if needed)
-  // Note: WebSocket proxying is complex and may require a separate WebSocket server
-  app.get("/api/websocket", async (_req, res) => {
-    // WebSocket upgrade requests should be handled differently
-    // For now, return an error suggesting direct connection
-    res.status(426).json({ 
-      error: "WebSocket connections should be made directly to Home Assistant",
-      message: "The dashboard iframe will handle WebSocket connections with injected authentication"
-    });
-  });
+  // --- Home Assistant Integration ---
+  const haBaseUrl = process.env.HA_BASE_URL;
+  const haToken = process.env.HA_TOKEN;
 
   // Helper function to handle HA static asset proxying
   async function handleHaStaticProxy(req: Request, res: Response) {
@@ -538,39 +169,40 @@ export async function registerRoutes(
     }
 
     try {
-      // Normalize path:
-      // - strip leading slash
-      // - fix double /static/ (static/static/ -> static/)
-      // - remap community/hacs/local resources
-      // - add /static/ prefix when missing for core asset roots
+      // Normalize path: handle community/local HACS paths and fix double /static/
       let normalizedPath = path.startsWith('/') ? path.substring(1) : path;
+      
+      // Fix double /static/ at the beginning: static/static/... -> static/...
       if (normalizedPath.startsWith('static/static/')) {
-        normalizedPath = `static/${normalizedPath.substring('static/static/'.length)}`;
+        normalizedPath = normalizedPath.substring(7); // Remove first 'static/'
         console.log("[HA Static] Fixed double /static/ path:", path, "->", normalizedPath);
       }
-
-      // Map Home Assistant community/hacs/local assets to the correct served path
+      
+      // Map community resources to local paths (HACS custom cards)
       if (normalizedPath.startsWith('homeassistant/www/community/')) {
-        const rest = normalizedPath.substring('homeassistant/www/'.length);
-        normalizedPath = `hacsfiles/${rest}`;
-        console.log("[HA Static] Mapped community asset:", path, "->", normalizedPath);
-      } else if (normalizedPath.startsWith('local/')) {
-        const rest = normalizedPath.substring('local/'.length);
-        normalizedPath = `hacsfiles/${rest}`;
-        console.log("[HA Static] Mapped local asset to hacsfiles:", path, "->", normalizedPath);
+        // homeassistant/www/community/... -> local/community/...
+        normalizedPath = 'local/community/' + normalizedPath.substring('homeassistant/www/community/'.length);
+        console.log("[HA Static] Mapped community to local:", path, "->", normalizedPath);
       }
-
-      const needsStaticPrefix =
-        !normalizedPath.startsWith('static/') &&
-        (
-          normalizedPath.startsWith('fonts/') ||
-          normalizedPath.startsWith('frontend_latest/') ||
-          normalizedPath.startsWith('homeassistant/') ||
-          normalizedPath.startsWith('hacsfiles/')
-        );
-      if (needsStaticPrefix) {
-        normalizedPath = `static/${normalizedPath}`;
+      
+      // Keep local/ paths as-is (don't add prefix or change them)
+      if (normalizedPath.startsWith('local/')) {
+        console.log("[HA Static] Keeping local path as-is:", normalizedPath);
+      } else if (!normalizedPath.startsWith('static/') && 
+                 !normalizedPath.startsWith('frontend_latest/') &&
+                 !normalizedPath.startsWith('homeassistant/') &&
+                 !normalizedPath.startsWith('hacsfiles/') &&
+                 !normalizedPath.startsWith('manifest.json')) {
+        // For paths that don't start with known prefixes, add static/ prefix
+        // This handles paths like fonts/roboto/...
+        if (normalizedPath.startsWith('fonts/') || 
+            normalizedPath.startsWith('icons/') ||
+            normalizedPath.startsWith('images/')) {
+          normalizedPath = 'static/' + normalizedPath;
+          console.log("[HA Static] Added static/ prefix:", path, "->", normalizedPath);
+        }
       }
+      
       const targetUrl = `${haBaseUrl}/${normalizedPath}${queryString}`;
       console.log("[HA Static] Proxying to HA:", {
         method: req.method,
@@ -637,7 +269,7 @@ export async function registerRoutes(
           statusText: response.statusText,
           targetUrl,
           path,
-        normalizedPath,
+          normalizedPath,
           errorBody: errorBody || '(no body)',
         });
         
@@ -653,37 +285,39 @@ export async function registerRoutes(
       if (contentType) {
         res.setHeader("Content-Type", contentType);
       }
-      
+
+      // Forward cache headers
       const cacheControl = response.headers.get("cache-control");
       if (cacheControl) {
         res.setHeader("Cache-Control", cacheControl);
       }
-      
-      // Forward CORS headers to allow iframe access
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-      // Stream the response
+      // Forward response body
       const buffer = await response.arrayBuffer();
-      console.log("[HA Static] Successfully proxied:", {
-        method: req.method,
-        path,
-        size: buffer.byteLength,
-        contentType,
-      });
       res.send(Buffer.from(buffer));
-    } catch (err: any) {
+    } catch (error) {
       console.error("[HA Static] Error:", {
         method: req.method,
         path,
-        error: err?.message,
+        error: error instanceof Error ? error.message : String(error),
       });
-      res.status(500).end();
+      res.status(500).json({ error: "Failed to fetch from Home Assistant" });
     }
   }
 
-  // Service Worker route - serves the SW as a real file to ensure it works properly
+  // Simplified route for Home Assistant static assets via /api/ha/static/*
+  // Accepts any path and proxies directly to HA
+  // Format: /api/ha/static/frontend_latest/core.js -> HA/frontend_latest/core.js
+  // Handles all HTTP methods (GET, POST, etc.) to support endpoints like cdn-cgi/rum
+  app.get("/api/ha/static/*", handleHaStaticProxy);
+  app.post("/api/ha/static/*", handleHaStaticProxy);
+  app.delete("/api/ha/static/*", handleHaStaticProxy);
+  // Use app.use for other methods (PUT, PATCH, OPTIONS) that may not be in Express type
+  (app as any).put("/api/ha/static/*", handleHaStaticProxy);
+  (app as any).patch("/api/ha/static/*", handleHaStaticProxy);
+  (app as any).options("/api/ha/static/*", handleHaStaticProxy);
+
+  // Service Worker route for Home Assistant proxy
   app.get("/ha-proxy-sw.js", (_req, res) => {
     const swCode = `
       // Force immediate activation - CRITICAL for intercepting dynamic imports
@@ -872,1138 +506,244 @@ export async function registerRoutes(
     const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
     const redirectUrl = `${haBaseUrl}/auth/authorize${queryString}`;
     
-    console.log("[HA Auth] Redirecting to HA:", redirectUrl);
+    log("[HA Auth] Redirecting to HA:", redirectUrl);
     res.redirect(302, redirectUrl);
   });
 
-  // Simplified route for Home Assistant static assets via /api/ha/static/*
-  // Accepts any path and proxies directly to HA
-  // Format: /api/ha/static/frontend_latest/core.js -> HA/frontend_latest/core.js
-  // Handles all HTTP methods (GET, POST, etc.) to support endpoints like cdn-cgi/rum
-  app.get("/api/ha/static/*", handleHaStaticProxy);
-  app.post("/api/ha/static/*", handleHaStaticProxy);
-  app.delete("/api/ha/static/*", handleHaStaticProxy);
-  // Use app.use for other methods (PUT, PATCH, OPTIONS) that may not be in Express type
-  (app as any).put("/api/ha/static/*", handleHaStaticProxy);
-  (app as any).patch("/api/ha/static/*", handleHaStaticProxy);
-  (app as any).options("/api/ha/static/*", handleHaStaticProxy);
-
-  // Proxy route for Home Assistant static assets (JS, CSS, fonts, etc.)
-  // This prevents CORS errors by proxying all resources through our server
-  app.get("/api/ha/proxy/*", async (req, res) => {
-    const path = req.params[0] || "";
-    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-    
-    console.log("[HA Proxy] Request received:", {
-      path,
-      queryString,
-      fullUrl: req.url,
-      userAgent: req.headers['user-agent'],
-    });
-    
-    if (!haBaseUrl || !haToken) {
-      console.error("[HA Proxy] Configuration missing:", {
-        hasBaseUrl: !!haBaseUrl,
-        hasToken: !!haToken,
-      });
-      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
-    }
-
-    try {
-      const targetUrl = `${haBaseUrl}/${path}${queryString}`;
-      console.log("[HA Proxy] Fetching from HA:", targetUrl);
-      
-      const response = await fetch(targetUrl, {
-        headers: {
-          Authorization: `Bearer ${haToken}`,
-          "User-Agent": "Mozilla/5.0",
-        },
-      });
-
-      console.log("[HA Proxy] Response status:", {
-        path,
-        status: response.status,
-        statusText: response.statusText,
-        contentType: response.headers.get("content-type"),
-        contentLength: response.headers.get("content-length"),
-      });
-
-      if (!response.ok) {
-        console.warn("[HA Proxy] Failed to fetch resource:", {
-          path,
-          status: response.status,
-          statusText: response.statusText,
-          targetUrl,
-        });
-        return res.status(response.status).end();
-      }
-
-      // Forward content type and other headers
-      const contentType = response.headers.get("content-type");
-      if (contentType) {
-        res.setHeader("Content-Type", contentType);
-      }
-      
-      // Forward cache headers if present
-      const cacheControl = response.headers.get("cache-control");
-      if (cacheControl) {
-        res.setHeader("Cache-Control", cacheControl);
-      }
-
-      // Stream the response
-      const buffer = await response.arrayBuffer();
-      console.log("[HA Proxy] Successfully proxied resource:", {
-        path,
-        size: buffer.byteLength,
-        contentType,
-      });
-      res.send(Buffer.from(buffer));
-    } catch (err: any) {
-      console.error("[HA Proxy] Error proxying resource:", {
-        path,
-        targetUrl: `${haBaseUrl}/${path}${queryString}`,
-        error: err?.message,
-        stack: err?.stack,
-      });
-      res.status(500).end();
-    }
-  });
-
-  // Helper function to process and serve proxied dashboard HTML
-  function serveProxiedDashboard(html: string, res: any) {
-    // Get the protocol (http/https) and convert to ws/wss for WebSocket
-    const wsProtocol = haBaseUrl.startsWith("https") ? "wss" : "ws";
-    const wsBaseUrl = haBaseUrl.replace(/^https?:/, wsProtocol);
-    
-    let hrefReplacements = 0;
-    let srcReplacements = 0;
-    let urlReplacements = 0;
-    const replacedUrls: string[] = [];
-    
-    // Modify the HTML to work in an iframe and inject authentication
-    // Replace asset paths to go through our proxy to avoid CORS issues
-    html = html
-      // Replace relative asset paths to use our proxy
-      // In Netlify, we need to route through /api/ha/static/* to go through serverless function
-      // Replace relative URLs - use proxy to avoid CORS issues
-      // Resources go through proxy, but API calls are handled separately
-      // IMPORTANT: Process link tags FIRST (before generic href) to catch modulepreload
-      .replace(/<link([^>]*?)href="\/([^"]+)"([^>]*?)>/gi, (match, before, path, after) => {
-        // API paths stay relative
-        if (path.startsWith('api/')) {
-          return match;
-        }
-        // Check if it's a modulepreload or preload link, or a resource file
-        const isModulePreload = /rel=["'](?:modulepreload|preload)["']/i.test(before + after);
-        const isResourceFile = /\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
-        // Proxy all modulepreload/preload links and resource files
-        if (isModulePreload || isResourceFile) {
-          const newUrl = `/api/ha/static/${path}`;
-          hrefReplacements++;
-          replacedUrls.push(`<link href="/${path}"> -> <link href="${newUrl}">`);
-          return `<link${before}href="${newUrl}"${after}>`;
-        }
-        return match;
-      })
-      // Then replace other href attributes (not in link tags, already processed above)
-      .replace(/href="\/([^"]+)"/g, (match, path) => {
-        // Skip if this is inside a link tag (already processed)
-        // API paths stay relative - will be handled by JavaScript with auth
-        if (path.startsWith('api/')) {
-          return match;
-        }
-        // All other resources go through proxy to avoid CORS
-        const newUrl = `/api/ha/static/${path}`;
-        hrefReplacements++;
-        replacedUrls.push(`${match} -> href="${newUrl}"`);
-        return `href="${newUrl}"`;
-      })
-      // Replace src attributes in script tags and other elements
-      // CRITICAL: This must catch ALL script src attributes, including type="module"
-      .replace(/<script([^>]*?)src="\/([^"]+)"([^>]*?)>/gi, (match, before, path, after) => {
-        // API paths stay relative
-        if (path.startsWith('api/')) {
-          return match;
-        }
-        // All script resources go through proxy
-        const newUrl = `/api/ha/static/${path}`;
-        srcReplacements++;
-        replacedUrls.push(`<script src="/${path}"> -> <script src="${newUrl}">`);
-        return `<script${before}src="${newUrl}"${after}>`;
-      })
-      // Also catch src attributes in other tags (img, iframe, etc.)
-      .replace(/src="\/([^"]+)"/g, (match, path) => {
-        // Skip if already processed (in script tag above)
-        // API paths stay relative
-        if (path.startsWith('api/')) {
-          return match;
-        }
-        // All other resources go through proxy
-        const newUrl = `/api/ha/static/${path}`;
-        srcReplacements++;
-        replacedUrls.push(`${match} -> src="${newUrl}"`);
-        return `src="${newUrl}"`;
-      })
-      .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
-        // API paths stay relative
-        if (path.startsWith('api/')) {
-          return match;
-        }
-        // CSS URLs go through proxy to avoid CORS
-        const newUrl = `/api/ha/static/${path}`;
-        urlReplacements++;
-        replacedUrls.push(`${match} -> url('${newUrl}')`);
-        return `url('${newUrl}')`;
-      })
-      // Replace WebSocket URLs to point to Home Assistant
-      .replace(/ws:\/\/[^/]+/g, wsBaseUrl)
-      .replace(/wss:\/\/[^/]+/g, wsBaseUrl)
-      // Inject authentication token and configuration
-      // IMPORTANT: This script must run IMMEDIATELY, before any other scripts
-      // Use a blocking script (no async/defer) to ensure it runs first
-      .replace(
-        /<head>/i,
-        `<head>
-          <script>
-            // BLOCKING SCRIPT - Must run before ANY other script
-            // This intercepts resources BEFORE they are loaded
-            // CRITICAL: Run immediately, before DOM is ready
-            (function() {
-              console.log('[HA Proxy] Injection script loaded and executing');
-              
-              // Register Service Worker to intercept ALL requests including dynamic imports
-              // CRITICAL: This MUST run before ANY scripts are loaded
-              // Service Worker is the ONLY way to intercept ES6 dynamic imports
-              if ('serviceWorker' in navigator) {
-                const swUrl = '/ha-proxy-sw.js';
-                
-                // IMMEDIATE registration - don't wait for anything
-                (function registerSW() {
-                  // Check if already controlling
-                  if (navigator.serviceWorker.controller) {
-                    console.log('[HA Proxy] Service Worker already controlling:', navigator.serviceWorker.controller.scriptURL);
-                    return;
-                  }
-                  
-                  // Try to register immediately
-                  navigator.serviceWorker.register(swUrl, { 
-                    scope: '/',
-                    updateViaCache: 'none'
-                  }).then(function(registration) {
-                    console.log('[HA Proxy] Service Worker registered:', registration.scope);
-                    
-                    // Force activation
-                    if (registration.waiting) {
-                      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                    }
-                    
-                    // Check state
-                    if (registration.installing) {
-                      registration.installing.addEventListener('statechange', function() {
-                        if (this.state === 'activated') {
-                          console.log('[HA Proxy] SW activated and ready!');
-                        }
-                      });
-                    }
-                    
-                    // Listen for controller
-                    navigator.serviceWorker.addEventListener('controllerchange', function() {
-                      console.log('[HA Proxy] SW now controlling page!');
-                    });
-                  }).catch(function(error) {
-                    console.error('[HA Proxy] SW registration failed:', error);
-                    // Retry after a short delay
-                    setTimeout(registerSW, 1000);
-                  });
-                })();
-                
-                // Also unregister old workers in background (non-blocking)
-                navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                  registrations.forEach(function(registration) {
-                    if (registration.scope !== window.location.origin + '/') {
-                      registration.unregister();
-                    }
-                  });
-                });
-              } else {
-                console.warn('[HA Proxy] Service Workers not supported');
-              }
-              // Home Assistant authentication configuration
-              window.hassTokens = { access_token: "${haToken}" };
-              window.hassUrl = "${haBaseUrl}";
-              console.log('[HA Proxy] Configuration set:', {
-                hasToken: !!window.hassTokens.access_token,
-                hassUrl: window.hassUrl
-              });
-            
-            // Helper function to rewrite URLs - use proxy for static assets, keep API calls relative
-            function rewriteUrl(url) {
-              const originalUrl = url;
-              if (!url) return url;
-              if (typeof url !== 'string') url = url.toString();
-              
-              // Skip data URLs and blob URLs
-              if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('#')) {
-                return url;
-              }
-              
-              // Already proxied URLs - keep them (but fix double /static/ if present)
-              if (url.startsWith('/api/ha/static/')) {
-                // Fix double /static/ paths: /api/ha/static/static/... -> /api/ha/static/...
-                if (url.startsWith('/api/ha/static/static/')) {
-                  const fixed = '/api/ha/static' + url.substring('/api/ha/static/static'.length);
-                  console.log('[HA Proxy] Fixing double /static/ path:', url, '->', fixed);
-                  return fixed;
-                }
-                console.log('[HA Proxy] URL already proxied:', url);
-                return url;
-              }
-              
-              // API calls - keep relative, will be handled by fetch override
-              if (url.startsWith('/api/') && !url.startsWith('/api/ha/')) {
-                console.log('[HA Proxy] API call, keeping relative:', url);
-                return url;
-              }
-              
-              // Absolute URLs pointing to HA - convert to proxy
-              const haBaseUrlValue = "${haBaseUrl}";
-              if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
-                const path = url.substring(haBaseUrlValue.length);
-                const rewritten = '/api/ha/static' + (path.startsWith('/') ? path : '/' + path);
-                console.log('[HA Proxy] Rewriting HA absolute URL:', url, '->', rewritten);
-                return rewritten;
-              }
-              
-              // Absolute URLs pointing to current origin (Netlify) - convert to proxy
-              // This catches resources that are being loaded directly from Netlify (including dynamic imports)
-              const currentOrigin = window.location.origin;
-              if (url.startsWith(currentOrigin)) {
-                const path = url.substring(currentOrigin.length);
-                // If it's not already proxied and not an API call, proxy it
-                if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
-                  // Check if it looks like a resource file that should be proxied
-                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
-                  const isResourcePath = path.startsWith('/frontend_latest/') || 
-                                         path.startsWith('/static/') ||
-                                         path.startsWith('/homeassistant/') ||
-                                         path.startsWith('/hacsfiles/') ||
-                                         path.startsWith('/local/');
-                  
-                  if (isResourceFile || isResourcePath) {
-                    const rewritten = '/api/ha/static' + path;
-                    console.log('[HA Proxy] Rewriting current origin URL (resource):', url, '->', rewritten);
-                    return rewritten;
-                  }
-                }
-                console.log('[HA Proxy] Current origin URL already proxied or API:', url);
-                return path; // Already proxied or API call
-              }
-              
-              // Relative URLs - use proxy (except API calls and auth endpoints)
-              if (url.startsWith('/')) {
-                // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
-                if (url.startsWith('/auth/')) {
-                  console.log('[HA Proxy] Auth endpoint, keeping as-is:', url);
-                  return url;
-                }
-                // Check if it's a static asset path (not API)
-                if (!url.startsWith('/api/')) {
-                  const rewritten = '/api/ha/static' + url;
-                  console.log('[HA Proxy] Rewriting relative URL:', url, '->', rewritten);
-                  return rewritten;
-                }
-                console.log('[HA Proxy] Relative API call, keeping as-is:', url);
-                return url; // API calls stay as-is
-              }
-              
-              // Relative URLs without leading slash - use proxy
-              // This catches cases like "frontend_latest/core.js" (no leading slash)
-              if (url.includes('.') && !url.startsWith('http') && !url.startsWith('//')) {
-                // If it looks like a file path (has extension), proxy it
-                const hasExtension = /\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(url);
-                if (hasExtension) {
-                  const rewritten = '/api/ha/static/' + url;
-                  console.log('[HA Proxy] Rewriting relative file URL:', url, '->', rewritten);
-                  return rewritten;
-                }
-              }
-              
-              // Log unhandled URLs for debugging
-              if (url && !url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('#')) {
-                console.warn('[HA Proxy] Unhandled URL (not rewritten):', url, 'original:', originalUrl);
-              }
-              
-              return url;
-            }
-            
-            // Override fetch to handle API calls through proxy and add auth token
-            // CRITICAL: This must intercept ALL fetch requests, including those from dynamic imports
-            const originalFetch = window.fetch;
-            window.fetch = function(url, options = {}) {
-              let urlStr = typeof url === 'string' ? url : url.toString();
-              const originalUrlStr = urlStr;
-              console.log('[HA Proxy] Fetch called with URL:', urlStr, 'method:', options?.method || 'GET');
-              
-              // CRITICAL: Check if this is a request to current origin that should be proxied
-              // This catches dynamic imports that resolve to absolute URLs
-              const currentOrigin = window.location.origin;
-              
-              // CRITICAL: Intercept ALL requests to current origin that look like resources
-              // This is a fallback in case Service Worker isn't active yet
-              if (urlStr.startsWith(currentOrigin)) {
-                const path = urlStr.substring(currentOrigin.length);
-                
-                // Skip if already proxied
-                if (path.startsWith('/api/ha/static/')) {
-                  // Already proxied, let it through
-                  return originalFetch(urlStr, options);
-                }
-                
-                // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
-                if (path.startsWith('/auth/')) {
-                  console.log('[HA Proxy] Fetch: Skipping auth endpoint:', path);
-                  return originalFetch(urlStr, options);
-                }
-                
-                // Skip real API calls (but not resources)
-                if (path.startsWith('/api/') && !path.startsWith('/api/ha/static/')) {
-                  // Check if it's actually a resource (has file extension)
-                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
-                  if (!isResourceFile) {
-                    // Real API call, let it through
-                    return originalFetch(urlStr, options);
-                  }
-                  // Otherwise it's a resource, continue to proxy it
-                }
-                
-                // AGGRESSIVE: Intercept ALL resources
-                const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
-                const isResourcePath = path.startsWith('/frontend_latest/') || 
-                                       path.startsWith('/static/') ||
-                                       path.startsWith('/homeassistant/') ||
-                                       path.startsWith('/hacsfiles/') ||
-                                       path.startsWith('/local/') ||
-                                       path === '/manifest.json';
-                
-                // If it's a resource, ALWAYS proxy it
-                if (isResourceFile || isResourcePath) {
-                  const proxyPath = '/api/ha/static' + path;
-                  const proxyUrl = currentOrigin + proxyPath;
-                  console.log('[HA Proxy] Fetch: INTERCEPTING resource (fallback):', {
-                    original: originalUrlStr,
-                    proxied: proxyUrl,
-                    path: path,
-                    isResourceFile: isResourceFile,
-                    isResourcePath: isResourcePath
-                  });
-                  return originalFetch(proxyUrl, options).catch(function(error) {
-                    console.error('[HA Proxy] Fetch error for proxied resource:', proxyUrl, error);
-                    throw error;
-                  });
-                }
-              }
-              
-              const rewrittenUrl = rewriteUrl(urlStr);
-              
-              // DOUBLE CHECK: If rewritten URL is still an absolute URL to current origin that should be proxied
-              if (rewrittenUrl.startsWith(currentOrigin)) {
-                const path = rewrittenUrl.substring(currentOrigin.length);
-                if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
-                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
-                  const isResourcePath = path.startsWith('/frontend_latest/') || 
-                                         path.startsWith('/static/') ||
-                                         path.startsWith('/homeassistant/') ||
-                                         path.startsWith('/hacsfiles/') ||
-                                         path.startsWith('/local/');
-                  
-                  if (isResourceFile || isResourcePath) {
-                    const proxyUrl = currentOrigin + '/api/ha/static' + path;
-                    console.log('[HA Proxy] Fetch: SECONDARY rewrite of absolute URL:', rewrittenUrl, '->', proxyUrl);
-                    return originalFetch(proxyUrl, options).catch(function(error) {
-                      console.error('[HA Proxy] Fetch error for proxied resource:', proxyUrl, error);
-                      throw error;
-                    });
-                  }
-                }
-              }
-              
-              // Log URL rewrites for debugging
-              if (urlStr !== rewrittenUrl) {
-                console.log('[HA Proxy] Fetch URL rewritten:', urlStr, '->', rewrittenUrl);
-              } else {
-                console.log('[HA Proxy] Fetch URL unchanged:', urlStr);
-              }
-              
-              // If it's an API call (relative /api/ but not /api/ha/static/), proxy it through our server
-              if (urlStr.startsWith('/api/') && !urlStr.startsWith('/api/ha/static/')) {
-                // Convert to absolute URL through our proxy
-                const proxyUrl = window.location.origin + rewrittenUrl;
-                options = options || {};
-                options.headers = options.headers || {};
-                options.headers['Authorization'] = 'Bearer ${haToken}';
-                return originalFetch(proxyUrl, options).catch(function(error) {
-                  console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
-                  throw error;
-                });
-              }
-              
-              // For proxied static assets, convert to absolute URL
-              // This includes resources rewritten from absolute URLs
-              if (rewrittenUrl.startsWith('/api/ha/static/')) {
-                const proxyUrl = window.location.origin + rewrittenUrl;
-                console.log('[HA Proxy] Fetch: Proxying static asset:', rewrittenUrl, '->', proxyUrl);
-                return originalFetch(proxyUrl, options).catch(function(error) {
-                  console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
-                  throw error;
-                });
-              }
-              
-              // If the original URL was an absolute URL to current origin that should be proxied
-              // but wasn't caught above, try to proxy it now
-              if (typeof url === 'string' && url.startsWith(currentOrigin)) {
-                const path = url.substring(currentOrigin.length);
-                if (!path.startsWith('/api/')) {
-                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
-                  const isResourcePath = path.startsWith('/frontend_latest/') || 
-                                         path.startsWith('/static/') ||
-                                         path.startsWith('/homeassistant/') ||
-                                         path.startsWith('/hacsfiles/') ||
-                                         path.startsWith('/local/');
-                  
-                  if (isResourceFile || isResourcePath) {
-                    const proxyUrl = window.location.origin + '/api/ha/static' + path;
-                    console.log('[HA Proxy] Fetch: Late interception of resource:', url, '->', proxyUrl);
-                    return originalFetch(proxyUrl, options).catch(function(error) {
-                      console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
-                      throw error;
-                    });
-                  }
-                }
-              }
-              
-              // If URL points to HA and is an API call, add auth header
-              const haBaseUrlValue = "${haBaseUrl}";
-              if (haBaseUrlValue && rewrittenUrl.startsWith(haBaseUrlValue) && rewrittenUrl.includes('/api/')) {
-                options = options || {};
-                options.headers = options.headers || {};
-                options.headers['Authorization'] = 'Bearer ${haToken}';
-              }
-              
-              return originalFetch(rewrittenUrl, options).catch(function(error) {
-                console.error('[HA Proxy] Fetch error for:', rewrittenUrl, error);
-                throw error;
-              });
-            };
-            
-            // Override XMLHttpRequest to handle API calls through proxy and add auth token
-            const originalXHROpen = XMLHttpRequest.prototype.open;
-            const originalXHRSend = XMLHttpRequest.prototype.send;
-            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-              // Store original URL for later use
-              this._haOriginalUrl = url;
-              console.log('[HA Proxy] XHR.open called:', method, url);
-              
-              // Rewrite URL using our helper function
-              let rewrittenUrl = rewriteUrl(url);
-              
-              // If it's a proxied static asset, convert to absolute URL
-              if (rewrittenUrl.startsWith('/api/ha/static/')) {
-                rewrittenUrl = window.location.origin + rewrittenUrl;
-                console.log('[HA Proxy] XHR proxied static asset, absolute URL:', rewrittenUrl);
-              } else if (rewrittenUrl.startsWith('/api/') && !rewrittenUrl.startsWith('/api/ha/static/')) {
-                // API calls - convert to absolute URL through our proxy
-                rewrittenUrl = window.location.origin + rewrittenUrl;
-                console.log('[HA Proxy] XHR API call, absolute URL:', rewrittenUrl);
-              }
-              
-              // Log URL rewrites for debugging
-              if (this._haOriginalUrl !== rewrittenUrl) {
-                console.log('[HA Proxy] XHR URL rewritten:', this._haOriginalUrl, '->', rewrittenUrl);
-              } else {
-                console.log('[HA Proxy] XHR URL unchanged:', url);
-              }
-              
-              return originalXHROpen.call(this, method, rewrittenUrl, ...rest);
-            };
-            
-            // Override send to add auth header for API calls
-            XMLHttpRequest.prototype.send = function(data) {
-              // If it's an API call, add auth header
-              if (this._haOriginalUrl && this._haOriginalUrl.startsWith('/api/') && !this._haOriginalUrl.startsWith('/api/ha/static/')) {
-                this.setRequestHeader('Authorization', 'Bearer ${haToken}');
-              }
-              return originalXHRSend.call(this, data);
-            };
-            
-            // Override URL constructor to intercept absolute URLs
-            // CRITICAL: Must handle relative URLs and invalid bases gracefully
-            const originalURL = window.URL;
-            window.URL = function(url, base) {
-              try {
-                // Convert relative base to absolute if needed
-                if (base !== undefined && base !== null && typeof base === 'string') {
-                  // If base is relative (starts with / but not http), convert to absolute
-                  if (base.startsWith('/') && !base.startsWith('http')) {
-                    base = window.location.origin + base;
-                  } else if (base.startsWith('./') || base === '.' || base === '..') {
-                    // Relative paths - use current location as base
-                    base = window.location.href;
-                  } else if (!base.startsWith('http') && !base.startsWith('data:') && !base.startsWith('blob:')) {
-                    // Other relative URLs - rewrite first, then convert to absolute if still relative
-                    const rewrittenBase = rewriteUrl(base);
-                    if (rewrittenBase.startsWith('/') && !rewrittenBase.startsWith('http')) {
-                      base = window.location.origin + rewrittenBase;
-                    } else {
-                      base = rewrittenBase;
-                    }
-                  } else {
-                    // Absolute URL - just rewrite it
-                    base = rewriteUrl(base);
-                  }
-                } else if (base === undefined || base === null) {
-                  // If no base provided and url is relative, use current location
-                  if (typeof url === 'string' && (url.startsWith('./') || url === '.' || url === '..' || 
-                      (!url.startsWith('http') && !url.startsWith('/') && !url.startsWith('data:') && !url.startsWith('blob:')))) {
-                    base = window.location.href;
-                  }
-                }
-                
-                // Handle url parameter
-                if (typeof url === 'string') {
-                  // Don't rewrite relative URLs that need a base (they'll be resolved against base)
-                  if (url.startsWith('./') || url === '.' || url === '..') {
-                    // Keep as-is, will be resolved against base
-                  } else if (!url.startsWith('http') && !url.startsWith('/') && !url.startsWith('data:') && !url.startsWith('blob:')) {
-                    // Relative URL without leading slash - may need base
-                    if (base === undefined || base === null) {
-                      base = window.location.href;
-                    }
-                  } else {
-                    // Absolute or absolute-relative URL - rewrite it
-                    url = rewriteUrl(url);
-                    // If rewritten URL is relative, convert to absolute
-                    if (url.startsWith('/') && !url.startsWith('http')) {
-                      url = window.location.origin + url;
-                    }
-                  }
-                }
-                
-                // Now both url and base should be valid for URL constructor
-                if (base !== undefined && base !== null) {
-                  try {
-                    return new originalURL(url, base);
-                  } catch (e) {
-                    console.warn('[HA Proxy] URL constructor failed, using fallback:', e, {url, base});
-                    // Fallback: try with current location as base
-                    try {
-                      return new originalURL(url, window.location.href);
-                    } catch (e2) {
-                      // Last resort: try without base
-                      return new originalURL(url);
-                    }
-                  }
-                }
-                
-                return new originalURL(url, base);
-              } catch (error) {
-                console.error('[HA Proxy] URL constructor error:', error, {url, base});
-                // Final fallback: use original URL constructor as-is
-                try {
-                  return new originalURL(url, base);
-                } catch (e) {
-                  // If that also fails, try with current location
-                  return new originalURL(url, window.location.href);
-                }
-              }
-            };
-            // Copy static methods
-            window.URL.createObjectURL = originalURL.createObjectURL;
-            window.URL.revokeObjectURL = originalURL.revokeObjectURL;
-            
-            // Override createElement to intercept script/link tags
-            const originalCreateElement = document.createElement;
-            document.createElement = function(tagName, options) {
-              const element = originalCreateElement.call(this, tagName, options);
-              
-              if (tagName === 'script' || tagName === 'link') {
-                console.log('[HA Proxy] createElement called for:', tagName);
-                // Intercept setAttribute
-                const originalSetAttribute = element.setAttribute;
-                element.setAttribute = function(name, value) {
-                  if ((name === 'src' || name === 'href') && typeof value === 'string') {
-                    const originalValue = value;
-                    value = rewriteUrl(value);
-                    if (originalValue !== value) {
-                      console.log('[HA Proxy] setAttribute rewritten:', name, originalValue, '->', value);
-                    } else {
-                      console.log('[HA Proxy] setAttribute unchanged:', name, value);
-                    }
-                  }
-                  return originalSetAttribute.call(this, name, value);
-                };
-                
-                // Intercept direct property assignment
-                if (tagName === 'script') {
-                  let srcValue = '';
-                  Object.defineProperty(element, 'src', {
-                    set: function(value) {
-                      if (typeof value === 'string') {
-                        const originalValue = value;
-                        srcValue = rewriteUrl(value);
-                        if (originalValue !== srcValue) {
-                          console.log('[HA Proxy] Script src property rewritten:', originalValue, '->', srcValue);
-                        } else {
-                          console.log('[HA Proxy] Script src property unchanged:', value);
-                        }
-                        this.setAttribute('src', srcValue);
-                      } else {
-                        srcValue = value;
-                      }
-                    },
-                    get: function() {
-                      return srcValue || this.getAttribute('src') || '';
-                    }
-                  });
-                }
-                
-                if (tagName === 'link') {
-                  let hrefValue = '';
-                  Object.defineProperty(element, 'href', {
-                    set: function(value) {
-                      if (typeof value === 'string') {
-                        const originalValue = value;
-                        hrefValue = rewriteUrl(value);
-                        if (originalValue !== hrefValue) {
-                          console.log('[HA Proxy] Link href property rewritten:', originalValue, '->', hrefValue);
-                        } else {
-                          console.log('[HA Proxy] Link href property unchanged:', value);
-                      }
-                        this.setAttribute('href', hrefValue);
-                      } else {
-                        hrefValue = value;
-                      }
-                    },
-                    get: function() {
-                      return hrefValue || this.getAttribute('href') || '';
-                    }
-                  });
-                }
-              }
-              
-              return element;
-            };
-            
-            // Use MutationObserver to intercept dynamically added script/link tags
-            if (document.readyState === 'loading') {
-              document.addEventListener('DOMContentLoaded', function() {
-                setupMutationObserver();
-              });
-            } else {
-              setupMutationObserver();
-            }
-            
-            function setupMutationObserver() {
-              console.log('[HA Proxy] Setting up MutationObserver');
-              const observer = new MutationObserver(function(mutations) {
-                mutations.forEach(function(mutation) {
-                  mutation.addedNodes.forEach(function(node) {
-                    if (node.nodeType === 1) { // Element node
-                      // Handle script tags
-                      if (node.tagName === 'SCRIPT' && node.src) {
-                        const originalSrc = node.src;
-                        const rewritten = rewriteUrl(node.src);
-                        if (originalSrc !== rewritten) {
-                          node.src = rewritten;
-                          console.log('[HA Proxy] MutationObserver rewrote script:', originalSrc, '->', rewritten);
-                        } else {
-                          console.log('[HA Proxy] MutationObserver script unchanged:', originalSrc);
-                        }
-                      }
-                      // Handle link tags
-                      if (node.tagName === 'LINK' && node.href) {
-                        const originalHref = node.href;
-                        const rewritten = rewriteUrl(node.href);
-                        if (originalHref !== rewritten) {
-                          node.href = rewritten;
-                          console.log('[HA Proxy] MutationObserver rewrote link:', originalHref, '->', rewritten);
-                        } else {
-                          console.log('[HA Proxy] MutationObserver link unchanged:', originalHref);
-                        }
-                      }
-                      // Handle nested scripts/links
-                      const scripts = node.querySelectorAll && node.querySelectorAll('script[src], link[href]');
-                      if (scripts && scripts.length > 0) {
-                        console.log('[HA Proxy] MutationObserver found', scripts.length, 'nested scripts/links');
-                        scripts.forEach(function(el) {
-                          if (el.src) {
-                            const originalSrc = el.src;
-                            const rewritten = rewriteUrl(el.src);
-                            if (originalSrc !== rewritten) {
-                              el.src = rewritten;
-                              console.log('[HA Proxy] MutationObserver rewrote nested script:', originalSrc, '->', rewritten);
-                            }
-                          }
-                          if (el.href) {
-                            const originalHref = el.href;
-                            const rewritten = rewriteUrl(el.href);
-                            if (originalHref !== rewritten) {
-                              el.href = rewritten;
-                              console.log('[HA Proxy] MutationObserver rewrote nested link:', originalHref, '->', rewritten);
-                            }
-                          }
-                        });
-                      }
-                    }
-                  });
-                });
-              });
-              
-              observer.observe(document.head, { childList: true, subtree: true });
-              observer.observe(document.body, { childList: true, subtree: true });
-              console.log('[HA Proxy] MutationObserver setup complete');
-            }
-            
-            // Override WebSocket to point directly to HA and include auth
-            const originalWebSocket = window.WebSocket;
-            window.WebSocket = function(url, protocols) {
-              const urlStr = typeof url === 'string' ? url : url.toString();
-              let rewrittenUrl = rewriteUrl(urlStr);
-              
-              // Ensure WebSocket URLs point to HA
-              if (rewrittenUrl.includes('/api/websocket')) {
-                // If it's a relative URL, convert to absolute HA URL
-                if (rewrittenUrl.startsWith('/')) {
-                  rewrittenUrl = haBaseUrlValue + rewrittenUrl;
-                } else if (!rewrittenUrl.startsWith('ws://') && !rewrittenUrl.startsWith('wss://')) {
-                  // If it's a protocol-relative URL, convert to absolute
-                  const protocol = haBaseUrlValue.startsWith('https') ? 'wss' : 'ws';
-                  const haHost = haBaseUrlValue.replace(/^https?:/, '');
-                  rewrittenUrl = protocol + '://' + haHost + (rewrittenUrl.startsWith('//') ? rewrittenUrl.substring(1) : rewrittenUrl);
-                }
-                
-                // Home Assistant WebSocket requires auth via first message
-                const ws = new originalWebSocket(rewrittenUrl, protocols);
-                ws.addEventListener('open', function() {
-                  ws.send(JSON.stringify({ type: 'auth', access_token: '${haToken}' }));
-                });
-                return ws;
-              }
-              
-              // For other WebSocket URLs, just rewrite if needed
-              return new originalWebSocket(rewrittenUrl, protocols);
-            };
-            
-            // Intercept dynamic imports
-            const originalImport = window.import || (() => {});
-            if (window.import) {
-              window.import = function(module) {
-                const rewrittenModule = rewriteUrl(module);
-                return originalImport(rewrittenModule);
-              };
-            }
-            
-            // Intercept System.import if available
-            if (window.System && window.System.import) {
-              const originalSystemImport = window.System.import;
-              window.System.import = function(module) {
-                const rewrittenModule = rewriteUrl(module);
-                return originalSystemImport.call(this, rewrittenModule);
-              };
-            }
-            
-            // Intercept CSS @font-face and @import URLs
-            const originalInsertRule = CSSStyleSheet.prototype.insertRule;
-            CSSStyleSheet.prototype.insertRule = function(rule, index) {
-              if (typeof rule === 'string') {
-                rule = rule.replace(/url\(['"]?([^'"]+)['"]?\)/g, function(match, url) {
-                  const rewritten = rewriteUrl(url);
-                  return 'url("' + rewritten + '")';
-                });
-              }
-              return originalInsertRule.call(this, rule, index);
-            };
-            
-            // Intercept CSSStyleSheet.addRule
-            if (CSSStyleSheet.prototype.addRule) {
-              const originalAddRule = CSSStyleSheet.prototype.addRule;
-              CSSStyleSheet.prototype.addRule = function(selector, style, index) {
-                if (typeof style === 'string') {
-                  style = style.replace(/url\(['"]?([^'"]+)['"]?\)/g, function(match, url) {
-                    const rewritten = rewriteUrl(url);
-                    return 'url("' + rewritten + '")';
-                  });
-                }
-                return originalAddRule.call(this, selector, style, index);
-              };
-            }
-            
-            // Intercept all existing script and link tags in the document
-            // This runs immediately to catch tags that were already in the HTML
-            (function interceptExistingTags() {
-              // Use setTimeout to ensure DOM is ready, but run as early as possible
-              if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', interceptExistingTags);
-              } else {
-                // DOM already ready, run immediately
-                setTimeout(interceptExistingTags, 0);
-              }
-              
-              function interceptExistingTags() {
-                const scripts = document.querySelectorAll('script[src]');
-                scripts.forEach(function(script) {
-                  if (script.src) {
-                    const originalSrc = script.src;
-                    const rewritten = rewriteUrl(originalSrc);
-                    if (originalSrc !== rewritten) {
-                      script.src = rewritten;
-                      console.log('[HA Proxy] Rewrote existing script:', originalSrc, '->', rewritten);
-                    }
-                  }
-                });
-                
-                const links = document.querySelectorAll('link[href]');
-                links.forEach(function(link) {
-                  if (link.href) {
-                    const originalHref = link.href;
-                    const rewritten = rewriteUrl(originalHref);
-                    if (originalHref !== rewritten) {
-                      link.href = rewritten;
-                      console.log('[HA Proxy] Rewrote existing link:', originalHref, '->', rewritten);
-                    }
-                  }
-                });
-              }
-            })();
-            })(); // End IIFE
-          </script>`
-      );
-
-    console.log("[HA Dashboard] HTML processing complete:", {
-      htmlLength: html.length,
-      hrefReplacements,
-      srcReplacements,
-      urlReplacements,
-      totalReplacements: hrefReplacements + srcReplacements + urlReplacements,
-      replacedUrls: replacedUrls.slice(0, 10), // Log first 10 replacements
-    });
-
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("X-Frame-Options", "ALLOWALL");
-    res.setHeader("Content-Security-Policy", "frame-ancestors *");
-    res.send(html);
-  }
-
-  // Proxy route for Home Assistant dashboard
-  // This allows embedding the full HA dashboard via iframe
-  // Home Assistant frontend is a SPA that requires proper authentication
-  // This route proxies the dashboard HTML and injects authentication
+  // Home Assistant Dashboard proxy route
   app.get("/api/ha/dashboard", async (req, res) => {
-    const dashboard = req.query.dashboard as string || "lovelace"; // Default to "lovelace" or custom dashboard name
-    const view = req.query.view as string || "default_view";
+    const dashboard = req.query.dashboard as string || "lovelace";
+    const view = req.query.view as string || "default";
     
-    console.log("[HA Dashboard] Request received:", {
+    log("[HA Dashboard] Request received: " + JSON.stringify({
       dashboard,
       view,
       query: req.query,
       userAgent: req.headers['user-agent'],
-    });
-    
+    }));
+
     if (!haBaseUrl || !haToken) {
-      console.error("[HA Dashboard] Configuration missing:", {
-        hasBaseUrl: !!haBaseUrl,
-        hasToken: !!haToken,
-        baseUrl: haBaseUrl || "(not set)",
-      });
+      log("[HA Dashboard] Configuration missing");
       return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
     }
 
     try {
-      // Build dashboard URL - supports both default lovelace and custom dashboards
-      // Examples:
-      // - /lovelace/default_view (default dashboard)
-      // - /dashboard-conex/aa (custom dashboard)
-      let dashboardUrl: string;
-      if (dashboard === "lovelace") {
-        dashboardUrl = `${haBaseUrl}/lovelace/${encodeURIComponent(view)}`;
-      } else {
-        // Custom dashboard: /dashboard-{name}/{view}
-        dashboardUrl = `${haBaseUrl}/${dashboard}/${encodeURIComponent(view)}`;
-      }
+      // Build the dashboard URL
+      const dashboardUrl = `${haBaseUrl}/${dashboard}/${view}`;
       
-      console.log("[HA Dashboard] Attempting to load:", {
+      log("[HA Dashboard] Attempting to load: " + JSON.stringify({
         dashboardUrl,
         dashboard,
         view,
-      });
-      
+      }));
+
       // Fetch the dashboard HTML from Home Assistant
       const response = await fetch(dashboardUrl, {
         headers: {
-          Authorization: `Bearer ${haToken}`,
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Authorization": `Bearer ${haToken}`,
+          "User-Agent": req.headers['user-agent'] || "Mozilla/5.0",
         },
       });
 
-      console.log("[HA Dashboard] Response from HA:", {
+      log("[HA Dashboard] Response from HA: " + JSON.stringify({
         status: response.status,
         statusText: response.statusText,
         contentType: response.headers.get("content-type"),
         contentLength: response.headers.get("content-length"),
         url: dashboardUrl,
-      });
+      }));
 
       if (!response.ok) {
-        // If specific dashboard fails, try the root dashboard
-        console.log("[HA Dashboard] Failed to load specific dashboard, trying root:", {
-          originalStatus: response.status,
-          originalStatusText: response.statusText,
-        });
-        const rootResponse = await fetch(`${haBaseUrl}/`, {
-          headers: {
-            Authorization: `Bearer ${haToken}`,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          },
-        });
-
-        console.log("[HA Dashboard] Root response:", {
-          status: rootResponse.status,
-          statusText: rootResponse.statusText,
-        });
-
-        if (!rootResponse.ok) {
-          console.error("[HA Dashboard] Both dashboard and root failed:", {
-            dashboardUrl,
-            dashboardStatus: response.status,
-            rootStatus: rootResponse.status,
-          });
-          return res.status(rootResponse.status).json({ 
-            error: `Failed to load dashboard: ${rootResponse.statusText}`,
-            attemptedUrl: dashboardUrl
-          });
-        }
-
-        const html = await rootResponse.text();
-        console.log("[HA Dashboard] Successfully loaded root dashboard, HTML length:", html.length);
-        return serveProxiedDashboard(html, res);
+        log("[HA Dashboard] Failed to fetch dashboard");
+        return res.status(response.status).json({ error: "Failed to fetch dashboard from Home Assistant" });
       }
 
-      const html = await response.text();
-      console.log("[HA Dashboard] Successfully loaded dashboard, HTML length:", html.length);
-      return serveProxiedDashboard(html, res);
-    } catch (err: any) {
-      console.error("[HA Dashboard] Error:", {
-        error: err?.message,
-        stack: err?.stack,
-        dashboard,
-        view,
-      });
-      res.status(500).json({ error: `Failed to proxy dashboard: ${err?.message}` });
-    }
-  });
-
-  // Catch-all route for /ha/* to handle any direct navigation or resource requests
-  // This ensures that if the iframe tries to navigate to /ha or load resources from /ha/*,
-  // they get properly proxied to Home Assistant
-  // Use app.use to match all routes starting with /ha
-  app.use("/ha", async (req: any, res: any, next: any) => {
-    // Only handle GET requests for now
-    if (req.method !== 'GET') {
-      return next();
-    }
-    
-    // Extract path after /ha
-    // req.path will be like "/ha" or "/ha/something/else"
-    let path = req.path;
-    if (path.startsWith('/ha')) {
-      path = path.substring(3); // Remove '/ha'
-      if (path.startsWith('/')) {
-        path = path.substring(1); // Remove leading '/'
-      }
-    }
-    
-    // If path is empty, it's just /ha - redirect to dashboard
-    if (!path || path === '') {
-      const dashboard = (req.query.dashboard as string) || "lovelace";
-      const view = (req.query.view as string) || "default_view";
-      return res.redirect(`/api/ha/dashboard?dashboard=${encodeURIComponent(dashboard)}&view=${encodeURIComponent(view)}`);
-    }
-    
-    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-    
-    console.log("[HA Catch-all] Request received:", {
-      path,
-      originalUrl: req.originalUrl,
-      reqPath: req.path,
-      method: req.method,
-      queryString,
-    });
-    
-    if (!haBaseUrl || !haToken) {
-      console.error("[HA Catch-all] Configuration missing");
-      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
-    }
-
-    try {
-      // Determine if this is an HTML page (dashboard) or a resource
-      const targetUrl = `${haBaseUrl}/${path}${queryString}`;
-      console.log("[HA Catch-all] Proxying to HA:", targetUrl);
+      let html = await response.text();
       
-      const response = await fetch(targetUrl, {
-        headers: {
-          Authorization: `Bearer ${haToken}`,
-          "User-Agent": req.headers['user-agent'] || "Mozilla/5.0",
-          Accept: req.headers.accept || "*/*",
-        },
-      });
+      log("[HA Dashboard] Successfully loaded dashboard, HTML length: " + html.length);
 
-      console.log("[HA Catch-all] Response:", {
-        status: response.status,
-        statusText: response.statusText,
-        contentType: response.headers.get("content-type"),
-        path,
-        targetUrl,
-      });
-
-      if (!response.ok) {
-        console.warn("[HA Catch-all] Failed to fetch:", {
-          path,
-          status: response.status,
-          statusText: response.statusText,
-          targetUrl,
-        });
-        return res.status(response.status).end();
-      }
-
-      const contentType = response.headers.get("content-type") || "";
+      // Track replacements for logging
+      let hrefReplacements = 0;
+      let srcReplacements = 0;
+      let urlReplacements = 0;
+      const replacedUrls: string[] = [];
       
-      // If it's HTML, process it through serveProxiedDashboard
-      if (contentType.includes("text/html")) {
-        const html = await response.text();
-        return serveProxiedDashboard(html, res);
-      }
+      // WebSocket URLs
+      const wsBaseUrl = haBaseUrl.replace(/^https?:/, "wss:");
       
-      // Otherwise, proxy the resource as-is
-      if (contentType) {
-        res.setHeader("Content-Type", contentType);
-      }
-      
-      const cacheControl = response.headers.get("cache-control");
-      if (cacheControl) {
-        res.setHeader("Cache-Control", cacheControl);
-      }
+      // Modify the HTML to work in an iframe and inject authentication
+      // Replace asset paths to go through our proxy to avoid CORS issues
+      html = html
+        // Replace relative asset paths to use our proxy
+        // In Netlify, we need to route through /api/ha/static/* to go through serverless function
+        // IMPORTANT: Process link tags FIRST (before generic href) to catch modulepreload
+        .replace(/<link([^>]*?)href="\/([^"]+)"([^>]*?)>/gi, (match, before, path, after) => {
+          // API paths stay relative
+          if (path.startsWith('api/')) {
+            return match;
+          }
+          // Check if it's a modulepreload or preload link, or a resource file
+          const isModulePreload = /rel=["'](?:modulepreload|preload)["']/i.test(before + after);
+          const isResourceFile = /\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+          // Proxy all modulepreload/preload links and resource files
+          if (isModulePreload || isResourceFile) {
+            const newUrl = `/api/ha/static/${path}`;
+            hrefReplacements++;
+            replacedUrls.push(`<link href="/${path}"> -> <link href="${newUrl}">`);
+            return `<link${before}href="${newUrl}"${after}>`;
+          }
+          return match;
+        })
+        // Then replace other href attributes (not in link tags, already processed above)
+        .replace(/href="\/([^"]+)"/g, (match, path) => {
+          // Skip if this is inside a link tag (already processed)
+          // API paths stay relative - will be handled by JavaScript with auth
+          if (path.startsWith('api/')) {
+            return match;
+          }
+          // All other resources go through proxy to avoid CORS
+          const newUrl = `/api/ha/static/${path}`;
+          hrefReplacements++;
+          replacedUrls.push(`${match} -> href="${newUrl}"`);
+          return `href="${newUrl}"`;
+        })
+        // Replace src attributes in script tags and other elements
+        // CRITICAL: This must catch ALL script src attributes, including type="module"
+        .replace(/<script([^>]*?)src="\/([^"]+)"([^>]*?)>/gi, (match, before, path, after) => {
+          // API paths stay relative
+          if (path.startsWith('api/')) {
+            return match;
+          }
+          // All script resources go through proxy
+          const newUrl = `/api/ha/static/${path}`;
+          srcReplacements++;
+          replacedUrls.push(`<script src="/${path}"> -> <script src="${newUrl}">`);
+          return `<script${before}src="${newUrl}"${after}>`;
+        })
+        // Also catch src attributes in other tags (img, iframe, etc.)
+        .replace(/src="\/([^"]+)"/g, (match, path) => {
+          // Skip if already processed (in script tag above)
+          // API paths stay relative
+          if (path.startsWith('api/')) {
+            return match;
+          }
+          // All other resources go through proxy
+          const newUrl = `/api/ha/static/${path}`;
+          srcReplacements++;
+          replacedUrls.push(`${match} -> src="${newUrl}"`);
+          return `src="${newUrl}"`;
+        })
+        .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
+          // API paths stay relative
+          if (path.startsWith('api/')) {
+            return match;
+          }
+          // CSS URLs go through proxy to avoid CORS
+          const newUrl = `/api/ha/static/${path}`;
+          urlReplacements++;
+          replacedUrls.push(`${match} -> url('${newUrl}')`);
+          return `url('${newUrl}')`;
+        })
+        // Replace WebSocket URLs to point to Home Assistant
+        .replace(/ws:\/\/[^/]+/g, wsBaseUrl)
+        .replace(/wss:\/\/[^/]+/g, wsBaseUrl)
+        // Inject authentication and proxy configuration
+        .replace(
+          /<head>/i,
+          `<head>
+            <script>
+              // BLOCKING SCRIPT - Must run before ANY other script
+              // This intercepts resources BEFORE they are loaded
+              // CRITICAL: Run immediately, before DOM is ready
+              (function() {
+                console.log('[HA Proxy] Injection script loaded and executing');
+                
+                // Register Service Worker to intercept ALL requests including dynamic imports
+                // CRITICAL: This MUST run before ANY scripts are loaded
+                // Service Worker is the ONLY way to intercept ES6 dynamic imports
+                if ('serviceWorker' in navigator) {
+                  const swUrl = '/ha-proxy-sw.js';
+                  
+                  // IMMEDIATE registration - don't wait for anything
+                  (function registerSW() {
+                    // Check if already controlling
+                    if (navigator.serviceWorker.controller) {
+                      console.log('[HA Proxy] Service Worker already controlling:', navigator.serviceWorker.controller.scriptURL);
+                      return;
+                    }
+                    
+                    // Try to register immediately
+                    navigator.serviceWorker.register(swUrl, { 
+                      scope: '/',
+                      updateViaCache: 'none'
+                    }).then(function(registration) {
+                      console.log('[HA Proxy] Service Worker registered:', registration.scope);
+                      
+                      // Force activation
+                      if (registration.waiting) {
+                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                      }
+                      
+                      // Check state
+                      if (registration.installing) {
+                        registration.installing.addEventListener('statechange', function() {
+                          if (this.state === 'activated') {
+                            console.log('[HA Proxy] SW activated and ready!');
+                          }
+                        });
+                      }
+                      
+                      // Listen for controller
+                      navigator.serviceWorker.addEventListener('controllerchange', function() {
+                        console.log('[HA Proxy] SW now controlling page!');
+                      });
+                    }).catch(function(error) {
+                      console.error('[HA Proxy] SW registration failed:', error);
+                      // Retry after a short delay
+                      setTimeout(registerSW, 1000);
+                    });
+                  })();
+                  
+                  // Also unregister old workers in background (non-blocking)
+                  navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                    registrations.forEach(function(registration) {
+                      if (registration.scope !== window.location.origin + '/') {
+                        registration.unregister();
+                      }
+                    });
+                  });
+                } else {
+                  console.warn('[HA Proxy] Service Workers not supported');
+                }
+                
+                // Home Assistant authentication configuration
+                window.hassTokens = { access_token: "${haToken}" };
+                window.hassUrl = "${haBaseUrl}";
+                console.log('[HA Proxy] Configuration set:', {
+                  hasToken: !!window.hassTokens.access_token,
+                  hassUrl: window.hassUrl
+                });
+              })();
+            </script>
+          `,
+        );
 
-      const buffer = await response.arrayBuffer();
-      res.send(Buffer.from(buffer));
-    } catch (err: any) {
-      console.error("[HA Catch-all] Error:", {
-        path,
-        error: err?.message,
-      });
-      res.status(500).end();
+      const totalReplacements = hrefReplacements + srcReplacements + urlReplacements;
+      log("[HA Dashboard] HTML processing complete: " + JSON.stringify({
+        htmlLength: html.length,
+        hrefReplacements,
+        srcReplacements,
+        urlReplacements,
+        totalReplacements,
+        replacedUrls,
+      }));
+
+      res.setHeader("Content-Type", "text/html");
+      res.send(html);
+    } catch (error) {
+      log("[HA Dashboard] Error:", error instanceof Error ? error.message : String(error));
+      res.status(500).json({ error: "Failed to load dashboard" });
     }
-    // Don't call next() - we've handled the request
   });
 
   // Companies
@@ -2322,7 +1062,5 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to delete video" });
     }
   });
-
-  return;
 }
 
