@@ -901,6 +901,32 @@ export async function registerRoutes(
     console.log("[HA Auth] Proxying auth request to HA:", { method: req.method, authPath, targetUrl });
 
     try {
+      // IMPORTANT: Home Assistant's frontend expects a refreshable OAuth-style token flow via /auth/token.
+      // A long-lived access token cannot be refreshed, which causes the UI to fall back to the login screen.
+      // We short-circuit /auth/token to always "succeed" with our server-side long-lived token so
+      // the HA frontend stays authenticated and shows the dashboard.
+      if (req.path === "/token") {
+        const now = Date.now();
+        const expiresInSeconds = 60 * 60 * 24 * 365 * 10; // 10 years
+        const payload = {
+          access_token: haToken,
+          token_type: "Bearer",
+          // HA expects refresh_token to exist; it will call /auth/token again later.
+          // Returning a stable dummy value is fine because we handle /auth/token here.
+          refresh_token: "proxy-refresh-token",
+          expires_in: expiresInSeconds,
+          expires: now + expiresInSeconds * 1000,
+        };
+
+        res.status(200);
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        // Allow embedding of proxied auth pages within our iframe
+        res.setHeader("X-Frame-Options", "ALLOWALL");
+        res.setHeader("Content-Security-Policy", "frame-ancestors *");
+        return res.send(JSON.stringify(payload));
+      }
+
       const headers: Record<string, string> = {
         Authorization: `Bearer ${haToken}`,
         "User-Agent": req.headers["user-agent"]?.toString() || "Mozilla/5.0",
@@ -1251,9 +1277,14 @@ export async function registerRoutes(
                   // Common HA storage keys
                   localStorage.setItem("hassTokens", JSON.stringify(tokens));
                   localStorage.setItem("hassUrl", hassUrl);
+                  // Some older/newer builds use "ha" prefixed keys
+                  localStorage.setItem("ha:hassTokens", JSON.stringify(tokens));
+                  localStorage.setItem("ha:hassUrl", hassUrl);
                   // Some HA versions read from sessionStorage during bootstrap
                   sessionStorage.setItem("hassTokens", JSON.stringify(tokens));
                   sessionStorage.setItem("hassUrl", hassUrl);
+                  sessionStorage.setItem("ha:hassTokens", JSON.stringify(tokens));
+                  sessionStorage.setItem("ha:hassUrl", hassUrl);
 
                   console.log("[HA Proxy] Tokens seeded into storage");
                 } catch (e) {
