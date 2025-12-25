@@ -1203,6 +1203,30 @@ export async function registerRoutes(
               // Service Worker is the ONLY way to intercept ES6 dynamic imports
               if ('serviceWorker' in navigator) {
                 const swUrl = '/ha-proxy-sw.js';
+
+                // Prevent Home Assistant from registering its own service worker (e.g. /sw-modern.js)
+                // on our origin. It can conflict with the proxy SW and often 404s in this embedding setup.
+                try {
+                  const originalRegister = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+                  navigator.serviceWorker.register = function(url, opts) {
+                    const u = (typeof url === 'string') ? url : (url && url.toString ? url.toString() : '');
+                    if (u && u !== swUrl && (u.includes('sw-modern.js') || u.includes('service_worker.js'))) {
+                      console.log('[HA Proxy] Blocking HA service worker registration:', u);
+                      // Return a minimal "registration-like" object.
+                      return Promise.resolve({
+                        scope: (opts && opts.scope) ? opts.scope : '/',
+                        update: function() { return Promise.resolve(); },
+                        unregister: function() { return Promise.resolve(true); },
+                        installing: null,
+                        waiting: null,
+                        active: null,
+                      });
+                    }
+                    return originalRegister(url, opts);
+                  };
+                } catch (e) {
+                  // Ignore
+                }
                 
                 // IMMEDIATE registration - don't wait for anything
                 (function registerSW() {
@@ -1304,10 +1328,26 @@ export async function registerRoutes(
               const originalUrl = url;
               if (!url) return url;
               if (typeof url !== 'string') url = url.toString();
+
+              const haBaseUrlValue = "${haBaseUrl}";
+              const wsBaseUrlValue = (haBaseUrlValue || "").replace(/^https?:/, haBaseUrlValue.startsWith("https") ? "wss:" : "ws:");
               
               // Skip data URLs and blob URLs
               if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('#')) {
                 return url;
+              }
+
+              // WebSockets: HA must connect directly to the HA origin (Netlify Functions cannot proxy WS).
+              // If HA tries to use current-origin /api/websocket, rewrite to HA's ws(s) endpoint.
+              if ((url.startsWith('ws://') || url.startsWith('wss://')) && url.includes('/api/websocket')) {
+                try {
+                  const u = new URL(url);
+                  const rewritten = wsBaseUrlValue + u.pathname + (u.search || '');
+                  console.log('[HA Proxy] Rewriting websocket URL:', url, '->', rewritten);
+                  return rewritten;
+                } catch (e) {
+                  // fall through
+                }
               }
               
               // Already proxied URLs - keep them (but fix double /static/ if present)
@@ -1346,7 +1386,6 @@ export async function registerRoutes(
               }
               
               // Absolute URLs pointing to HA - convert to proxy
-              const haBaseUrlValue = "${haBaseUrl}";
               if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
                 const path = url.substring(haBaseUrlValue.length);
                 const rewritten = '/api/ha/static' + (path.startsWith('/') ? path : '/' + path);
@@ -1885,18 +1924,20 @@ export async function registerRoutes(
             const originalWebSocket = window.WebSocket;
             window.WebSocket = function(url, protocols) {
               const urlStr = typeof url === 'string' ? url : url.toString();
-              let rewrittenUrl = rewriteUrl(urlStr);
+              let rewrittenUrl = urlStr;
+              const haBaseUrlValue = "${haBaseUrl}";
+              const wsBaseUrlValue = (haBaseUrlValue || "").replace(/^https?:/, haBaseUrlValue.startsWith("https") ? "wss:" : "ws:");
               
               // Ensure WebSocket URLs point to HA
               if (rewrittenUrl.includes('/api/websocket')) {
-                // If it's a relative URL, convert to absolute HA URL
-                if (rewrittenUrl.startsWith('/')) {
-                  rewrittenUrl = haBaseUrlValue + rewrittenUrl;
-                } else if (!rewrittenUrl.startsWith('ws://') && !rewrittenUrl.startsWith('wss://')) {
-                  // If it's a protocol-relative URL, convert to absolute
-                  const protocol = haBaseUrlValue.startsWith('https') ? 'wss' : 'ws';
-                  const haHost = haBaseUrlValue.replace(/^https?:/, '');
-                  rewrittenUrl = protocol + '://' + haHost + (rewrittenUrl.startsWith('//') ? rewrittenUrl.substring(1) : rewrittenUrl);
+                try {
+                  // Handle relative, absolute, and current-origin ws URLs by always forcing HA ws(s) origin.
+                  const u = rewrittenUrl.startsWith('/') ? new URL(window.location.origin + rewrittenUrl) : new URL(rewrittenUrl, window.location.origin);
+                  rewrittenUrl = wsBaseUrlValue + u.pathname + (u.search || '');
+                  console.log('[HA Proxy] Forcing websocket to HA origin:', urlStr, '->', rewrittenUrl);
+                } catch (e) {
+                  // Last-resort fallback
+                  rewrittenUrl = wsBaseUrlValue + '/api/websocket';
                 }
                 
                 // Home Assistant WebSocket requires auth via first message
@@ -1908,7 +1949,7 @@ export async function registerRoutes(
               }
               
               // For other WebSocket URLs, just rewrite if needed
-              return new originalWebSocket(rewrittenUrl, protocols);
+              return new originalWebSocket(rewriteUrl(urlStr), protocols);
             };
             
             // Intercept dynamic imports
