@@ -983,6 +983,14 @@ export async function registerRoutes(
     // Modify the HTML to work in an iframe and inject authentication
     // Replace asset paths to go through our proxy to avoid CORS issues
     html = html
+      // CRITICAL: Remove or replace <base> tags that might interfere with URL resolution
+      // Home Assistant often uses <base href="/homeassistant/www/"> or similar
+      // which causes all relative URLs to be resolved incorrectly
+      .replace(/<base\s+[^>]*>/gi, (match) => {
+        console.log("[HA Dashboard] Removing base tag:", match);
+        // Replace with empty comment to preserve line numbers for debugging
+        return `<!-- base tag removed: ${match.replace(/</g, '&lt;').replace(/>/g, '&gt;')} -->`;
+      })
       // Replace relative asset paths to use our proxy
       // In Netlify, we need to route through /api/ha/static/* to go through serverless function
       // Replace relative URLs - use proxy to avoid CORS issues
@@ -1177,6 +1185,9 @@ export async function registerRoutes(
               // Absolute URLs pointing to current origin (Netlify) - convert to proxy
               // This catches resources that are being loaded directly from Netlify (including dynamic imports)
               const currentOrigin = window.location.origin;
+              const currentHostname = window.location.hostname;
+              
+              // Check if URL matches current origin (exact match)
               if (url.startsWith(currentOrigin)) {
                 const path = url.substring(currentOrigin.length);
                 // If it's not already proxied and not an API call, proxy it
@@ -1197,6 +1208,35 @@ export async function registerRoutes(
                 }
                 console.log('[HA Proxy] Current origin URL already proxied or API:', url);
                 return path; // Already proxied or API call
+              }
+              
+              // CRITICAL: Also check for URLs with same hostname but different protocol (http vs https)
+              // This fixes issues where Home Assistant generates http:// URLs but the site uses https://
+              if (url.startsWith('http://') || url.startsWith('https://')) {
+                try {
+                  const urlObj = new URL(url);
+                  if (urlObj.hostname === currentHostname) {
+                    const path = urlObj.pathname + urlObj.search + urlObj.hash;
+                    // If it's not already proxied and not an API call, proxy it
+                    if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
+                      // Check if it looks like a resource file that should be proxied
+                      const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
+                      const isResourcePath = path.startsWith('/frontend_latest/') || 
+                                             path.startsWith('/static/') ||
+                                             path.startsWith('/homeassistant/') ||
+                                             path.startsWith('/hacsfiles/') ||
+                                             path.startsWith('/local/');
+                      
+                      if (isResourceFile || isResourcePath) {
+                        const rewritten = '/api/ha/static' + path;
+                        console.log('[HA Proxy] Rewriting URL with different protocol (same hostname):', url, '->', rewritten);
+                        return rewritten;
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Invalid URL, continue
+                }
               }
               
               // Relative URLs - use proxy (except API calls and auth endpoints)
