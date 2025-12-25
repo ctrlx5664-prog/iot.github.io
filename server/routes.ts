@@ -563,17 +563,16 @@ export async function registerRoutes(
         console.log("[HA Static] Path already in hacsfiles format:", normalizedPath);
       }
 
+      // IMPORTANT: Home Assistant serves some assets under /static/* (fonts/translations/etc),
+      // but others are served at the root (e.g. /frontend_latest/* and /hacsfiles/*).
+      // We only add the /static/ prefix for paths that are known to live under /static/.
       const needsStaticPrefix =
-        !normalizedPath.startsWith('static/') &&
-        (
-          normalizedPath.startsWith('fonts/') ||
-          normalizedPath.startsWith('frontend_latest/') ||
-          normalizedPath.startsWith('homeassistant/') ||
-          normalizedPath.startsWith('hacsfiles/')
-        );
-      if (needsStaticPrefix) {
-        normalizedPath = `static/${normalizedPath}`;
-      }
+        !normalizedPath.startsWith("static/") &&
+        (normalizedPath.startsWith("fonts/") ||
+          normalizedPath.startsWith("translations/") ||
+          normalizedPath.startsWith("locale-data/"));
+
+      if (needsStaticPrefix) normalizedPath = `static/${normalizedPath}`;
       const targetUrl = `${haBaseUrl}/${normalizedPath}${queryString}`;
       console.log("[HA Static] Proxying to HA:", {
         method: req.method,
@@ -592,7 +591,8 @@ export async function registerRoutes(
           "User-Agent": req.headers['user-agent'] || "Mozilla/5.0",
           Accept: req.headers.accept || "*/*",
           "Accept-Language": req.headers['accept-language'] || "en-US,en;q=0.9",
-          "Accept-Encoding": req.headers['accept-encoding'] || "gzip, deflate, br",
+          // Do NOT forward Accept-Encoding. Node's fetch will handle decoding; forwarding can
+          // lead to encoded bodies being sent to the browser without proper headers.
           "Referer": req.headers.referer || haBaseUrl,
         },
       };
@@ -826,18 +826,27 @@ export async function registerRoutes(
           });
           
           // Intercept and proxy the request
-          event.respondWith(
-            fetch(proxyUrl, {
-              method: method,
-              headers: event.request.headers,
-              body: event.request.body,
-              mode: event.request.mode,
-              credentials: event.request.credentials,
-              cache: event.request.cache,
-              redirect: event.request.redirect,
-              referrer: event.request.referrer,
-              referrerPolicy: event.request.referrerPolicy
-            }).then(function(response) {
+          event.respondWith((async function() {
+            try {
+              // NOTE: Do NOT pass "mode: event.request.mode".
+              // For navigation requests, event.request.mode === 'navigate' and browsers
+              // reject constructing proxied Requests with that mode.
+              const init = {
+                method: method,
+                headers: event.request.headers,
+                credentials: event.request.credentials,
+                redirect: event.request.redirect,
+                referrer: event.request.referrer,
+                referrerPolicy: event.request.referrerPolicy
+              };
+
+              if (method !== 'GET' && method !== 'HEAD') {
+                // Avoid reusing the original body stream directly.
+                const bodyBuf = await event.request.clone().arrayBuffer();
+                init.body = bodyBuf;
+              }
+
+              const response = await fetch(proxyUrl, init);
               if (!response.ok) {
                 console.error('[HA Proxy SW] Proxied request failed:', {
                   url: proxyUrl,
@@ -852,23 +861,20 @@ export async function registerRoutes(
                 });
               }
               return response;
-            }).catch(function(error) {
+            } catch (error) {
               console.error('[HA Proxy SW] Fetch error for proxied resource:', {
                 url: proxyUrl,
-                error: error.message,
-                stack: error.stack
+                error: error && error.message ? error.message : String(error),
+                stack: error && error.stack ? error.stack : undefined
               });
-              // Fallback to original request if proxy fails
-              return fetch(event.request).catch(function(fallbackError) {
+              try {
+                return await fetch(event.request);
+              } catch (fallbackError) {
                 console.error('[HA Proxy SW] Fallback fetch also failed:', fallbackError);
-                // Return a basic error response
-                return new Response('Resource not found', { 
-                  status: 404, 
-                  statusText: 'Not Found' 
-                });
-              });
-            })
-          );
+                return new Response('Resource not found', { status: 404, statusText: 'Not Found' });
+              }
+            }
+          })());
           return;
         }
         
