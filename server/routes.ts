@@ -550,14 +550,17 @@ export async function registerRoutes(
       }
 
       // Map Home Assistant community/hacs/local assets to the correct served path
-      if (normalizedPath.startsWith('homeassistant/www/community/')) {
+      if (normalizedPath.startsWith('homeassistant/www/community/') || normalizedPath.startsWith('homeassistant/www/hacs/')) {
         const rest = normalizedPath.substring('homeassistant/www/'.length);
         normalizedPath = `hacsfiles/${rest}`;
-        console.log("[HA Static] Mapped community asset:", path, "->", normalizedPath);
+        console.log("[HA Static] Mapped homeassistant/www/ asset:", path, "->", normalizedPath);
       } else if (normalizedPath.startsWith('local/')) {
         const rest = normalizedPath.substring('local/'.length);
         normalizedPath = `hacsfiles/${rest}`;
         console.log("[HA Static] Mapped local asset to hacsfiles:", path, "->", normalizedPath);
+      } else if (normalizedPath.startsWith('hacsfiles/')) {
+        // Already in correct format, just log it
+        console.log("[HA Static] Path already in hacsfiles format:", normalizedPath);
       }
 
       const needsStaticPrefix =
@@ -790,7 +793,21 @@ export async function registerRoutes(
         // Intercept if it's a resource file, resource path, or resource destination
         // PRIORITY: If destination is 'script', ALWAYS intercept (this catches dynamic imports)
         if (destination === 'script' || isResourceFile || isResourcePath || isResourceDestination) {
-          const proxyUrl = currentOrigin + '/api/ha/static' + path + (url.search || '');
+          // Map special paths before proxying
+          let mappedPath = path;
+          
+          // CRITICAL: Map HACS/community resources
+          if (path.startsWith('/homeassistant/www/community/') || path.startsWith('/homeassistant/www/hacs/')) {
+            const pathAfterWww = path.substring('/homeassistant/www/'.length);
+            mappedPath = '/hacsfiles/' + pathAfterWww;
+            console.log('[HA Proxy SW] Mapped homeassistant/www/ path:', path, '->', mappedPath);
+          } else if (path.startsWith('/local/')) {
+            const pathAfterLocal = path.substring('/local/'.length);
+            mappedPath = '/hacsfiles/' + pathAfterLocal;
+            console.log('[HA Proxy SW] Mapped /local/ path:', path, '->', mappedPath);
+          }
+          
+          const proxyUrl = currentOrigin + '/api/ha/static' + mappedPath + (url.search || '');
           
           console.log('[HA Proxy SW] PROXYING resource:', {
             original: requestUrl,
@@ -798,6 +815,7 @@ export async function registerRoutes(
             method: method,
             destination: destination,
             path: path,
+            mappedPath: mappedPath,
             isResourceFile: isResourceFile,
             isResourcePath: isResourcePath,
             isResourceDestination: isResourceDestination
@@ -991,6 +1009,20 @@ export async function registerRoutes(
         // Replace with empty comment to preserve line numbers for debugging
         return `<!-- base tag removed: ${match.replace(/</g, '&lt;').replace(/>/g, '&gt;')} -->`;
       })
+      // CRITICAL: Replace problematic path patterns that need special mapping
+      // These must be done BEFORE the generic replacements to ensure correct mapping
+      // Map /homeassistant/www/ paths (HACS resources) - these need to go through hacsfiles
+      .replace(/=["']\/homeassistant\/www\/(community|hacs)\/([^"']+)["']/gi, (match, type, path) => {
+        console.log("[HA Dashboard] Mapping homeassistant/www/ path:", match);
+        // homeassistant/www/community/ -> /api/ha/static/hacsfiles/community/
+        return `="/api/ha/static/hacsfiles/${type}/${path}"`;
+      })
+      // Map /local/ paths (also HACS resources)
+      .replace(/=["']\/local\/([^"']+)["']/gi, (match, path) => {
+        console.log("[HA Dashboard] Mapping /local/ path:", match);
+        // local/ -> /api/ha/static/hacsfiles/
+        return `="/api/ha/static/hacsfiles/${path}"`;
+      })
       // Replace relative asset paths to use our proxy
       // In Netlify, we need to route through /api/ha/static/* to go through serverless function
       // Replace relative URLs - use proxy to avoid CORS issues
@@ -1173,6 +1205,23 @@ export async function registerRoutes(
                 return url;
               }
               
+              // CRITICAL: Map problematic Home Assistant paths before general processing
+              // These are HACS/community resources that need special handling
+              if (url.startsWith('/homeassistant/www/community/') || url.startsWith('/homeassistant/www/hacs/')) {
+                const pathAfterWww = url.substring('/homeassistant/www/'.length);
+                const rewritten = '/api/ha/static/hacsfiles/' + pathAfterWww;
+                console.log('[HA Proxy] Mapping homeassistant/www/ path:', url, '->', rewritten);
+                return rewritten;
+              }
+              
+              // Map /local/ paths (HACS resources)
+              if (url.startsWith('/local/')) {
+                const pathAfterLocal = url.substring('/local/'.length);
+                const rewritten = '/api/ha/static/hacsfiles/' + pathAfterLocal;
+                console.log('[HA Proxy] Mapping /local/ path:', url, '->', rewritten);
+                return rewritten;
+              }
+              
               // Absolute URLs pointing to HA - convert to proxy
               const haBaseUrlValue = "${haBaseUrl}";
               if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
@@ -1327,12 +1376,14 @@ export async function registerRoutes(
                 
                 // If it's a resource, ALWAYS proxy it
                 if (isResourceFile || isResourcePath) {
-                  const proxyPath = '/api/ha/static' + path;
-                  const proxyUrl = currentOrigin + proxyPath;
+                  // Use rewriteUrl to handle special path mappings (like /local/ -> /hacsfiles/)
+                  const rewrittenPath = rewriteUrl(path);
+                  const proxyUrl = currentOrigin + rewrittenPath;
                   console.log('[HA Proxy] Fetch: INTERCEPTING resource (fallback):', {
                     original: originalUrlStr,
                     proxied: proxyUrl,
                     path: path,
+                    rewrittenPath: rewrittenPath,
                     isResourceFile: isResourceFile,
                     isResourcePath: isResourcePath
                   });
@@ -1357,7 +1408,9 @@ export async function registerRoutes(
                                          path.startsWith('/local/');
                   
                   if (isResourceFile || isResourcePath) {
-                    const proxyUrl = currentOrigin + '/api/ha/static' + path;
+                    // Use rewriteUrl to handle special path mappings
+                    const finalPath = rewriteUrl(path);
+                    const proxyUrl = currentOrigin + finalPath;
                     console.log('[HA Proxy] Fetch: SECONDARY rewrite of absolute URL:', rewrittenUrl, '->', proxyUrl);
                     return originalFetch(proxyUrl, options).catch(function(error) {
                       console.error('[HA Proxy] Fetch error for proxied resource:', proxyUrl, error);
@@ -1411,7 +1464,9 @@ export async function registerRoutes(
                                          path.startsWith('/local/');
                   
                   if (isResourceFile || isResourcePath) {
-                    const proxyUrl = window.location.origin + '/api/ha/static' + path;
+                    // Use rewriteUrl to handle special path mappings
+                    const finalPath = rewriteUrl(path);
+                    const proxyUrl = window.location.origin + finalPath;
                     console.log('[HA Proxy] Fetch: Late interception of resource:', url, '->', proxyUrl);
                     return originalFetch(proxyUrl, options).catch(function(error) {
                       console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
