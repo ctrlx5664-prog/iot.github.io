@@ -22,11 +22,13 @@ export const handler: Handler = async (event, context) => {
     // Special case: /ha-proxy-sw.js should map to /ha-proxy-sw.js (not /api/ha-proxy-sw.js)
     if (normalizedRest === "/ha-proxy-sw.js") {
       event = { ...event, path: "/ha-proxy-sw.js" };
-    } else if (normalizedRest.startsWith("/auth/")) {
-      // Auth endpoints should map to /auth/* (not /api/auth/*)
+    } else if (normalizedRest === "/auth/authorize") {
+      // Home Assistant auth endpoint - map to /auth/authorize (not /api/auth/authorize)
       event = { ...event, path: normalizedRest };
     } else {
-      // All other paths go under /api/*
+      // All other paths (including /api/auth/* for app auth) go under /api/*
+      // App auth routes are registered as /api/auth/* in server/routes.ts
+      // Note: /auth/register etc. come from /api/auth/register redirect, so map to /api/auth/register
       event = { ...event, path: `/api${normalizedRest}` };
     }
   }
