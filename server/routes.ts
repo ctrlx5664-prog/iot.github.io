@@ -1228,11 +1228,42 @@ export async function registerRoutes(
                 console.warn('[HA Proxy] Service Workers not supported');
               }
               // Home Assistant authentication configuration
-              window.hassTokens = { access_token: "${haToken}" };
-              window.hassUrl = "${haBaseUrl}";
+              // HA frontend expects tokens in storage (per-origin). If they're missing,
+              // it shows the login flow even if we add Authorization headers at the network layer.
+              (function seedHaTokens() {
+                const accessToken = "${haToken}";
+                const hassUrl = "${haBaseUrl}";
+                const now = Date.now();
+
+                // Long-lived tokens do not have refresh tokens; HA frontend still expects the field.
+                // Using the same token here works because we force Authorization on all requests anyway.
+                const tokens = {
+                  access_token: accessToken,
+                  refresh_token: accessToken,
+                  token_type: "Bearer",
+                  expires: now + 1000 * 60 * 60 * 24 * 365 * 10, // 10 years
+                };
+
+                try {
+                  window.hassTokens = tokens;
+                  window.hassUrl = hassUrl;
+
+                  // Common HA storage keys
+                  localStorage.setItem("hassTokens", JSON.stringify(tokens));
+                  localStorage.setItem("hassUrl", hassUrl);
+                  // Some HA versions read from sessionStorage during bootstrap
+                  sessionStorage.setItem("hassTokens", JSON.stringify(tokens));
+                  sessionStorage.setItem("hassUrl", hassUrl);
+
+                  console.log("[HA Proxy] Tokens seeded into storage");
+                } catch (e) {
+                  console.warn("[HA Proxy] Failed to seed tokens into storage:", e);
+                }
+              })();
+
               console.log('[HA Proxy] Configuration set:', {
-                hasToken: !!window.hassTokens.access_token,
-                hassUrl: window.hassUrl
+                hasToken: true,
+                hassUrl: "${haBaseUrl}"
               });
             
             // Helper function to rewrite URLs - use proxy for static assets, keep API calls relative
