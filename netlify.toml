@@ -49,18 +49,6 @@
   to = "/.netlify/functions/api/:splat"
   status = 200
 
-# Home Assistant SPA routes (inside the iframe) can navigate to /<dashboard>/<view> on our origin.
-# Serve those routes via the proxied dashboard HTML, otherwise Netlify will return its static 404 page.
-[[redirects]]
-  from = "/dashboard-conex/*"
-  to = "/.netlify/functions/api/ha/dashboard?dashboard=dashboard-conex&view=:splat"
-  status = 200
-
-[[redirects]]
-  from = "/lovelace/*"
-  to = "/.netlify/functions/api/ha/dashboard?dashboard=lovelace&view=:splat"
-  status = 200
-
 # Service Worker for Home Assistant proxy - must be served by serverless function
 [[redirects]]
   from = "/ha-proxy-sw.js"
