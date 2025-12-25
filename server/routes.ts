@@ -2129,17 +2129,20 @@ export async function registerRoutes(
   // This allows embedding the full HA dashboard via iframe
   // Home Assistant frontend is a SPA that requires proper authentication
   // This route proxies the dashboard HTML and injects authentication
-  app.get("/api/ha/dashboard", async (req, res) => {
-    const dashboard = req.query.dashboard as string || "lovelace"; // Default to "lovelace" or custom dashboard name
-    const view = req.query.view as string || "default_view";
-    
+  async function proxyHaDashboardHtml(
+    req: any,
+    res: any,
+    dashboard: string,
+    view: string,
+  ) {
     console.log("[HA Dashboard] Request received:", {
       dashboard,
       view,
+      url: req.originalUrl,
       query: req.query,
-      userAgent: req.headers['user-agent'],
+      userAgent: req.headers["user-agent"],
     });
-    
+
     if (!haBaseUrl || !haToken) {
       console.error("[HA Dashboard] Configuration missing:", {
         hasBaseUrl: !!haBaseUrl,
@@ -2154,25 +2157,22 @@ export async function registerRoutes(
       // Examples:
       // - /lovelace/default_view (default dashboard)
       // - /dashboard-conex/aa (custom dashboard)
-      let dashboardUrl: string;
-      if (dashboard === "lovelace") {
-        dashboardUrl = `${haBaseUrl}/lovelace/${encodeURIComponent(view)}`;
-      } else {
-        // Custom dashboard: /dashboard-{name}/{view}
-        dashboardUrl = `${haBaseUrl}/${dashboard}/${encodeURIComponent(view)}`;
-      }
-      
+      const dashboardUrl =
+        dashboard === "lovelace"
+          ? `${haBaseUrl}/lovelace/${encodeURIComponent(view)}`
+          : `${haBaseUrl}/${dashboard}/${encodeURIComponent(view)}`;
+
       console.log("[HA Dashboard] Attempting to load:", {
         dashboardUrl,
         dashboard,
         view,
       });
-      
-      // Fetch the dashboard HTML from Home Assistant
+
       const response = await fetch(dashboardUrl, {
         headers: {
           Authorization: `Bearer ${haToken}`,
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "User-Agent": req.headers["user-agent"]?.toString() ||
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
       });
@@ -2186,15 +2186,16 @@ export async function registerRoutes(
       });
 
       if (!response.ok) {
-        // If specific dashboard fails, try the root dashboard
         console.log("[HA Dashboard] Failed to load specific dashboard, trying root:", {
           originalStatus: response.status,
           originalStatusText: response.statusText,
         });
+
         const rootResponse = await fetch(`${haBaseUrl}/`, {
           headers: {
             Authorization: `Bearer ${haToken}`,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": req.headers["user-agent"]?.toString() ||
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           },
         });
@@ -2210,9 +2211,9 @@ export async function registerRoutes(
             dashboardStatus: response.status,
             rootStatus: rootResponse.status,
           });
-          return res.status(rootResponse.status).json({ 
+          return res.status(rootResponse.status).json({
             error: `Failed to load dashboard: ${rootResponse.statusText}`,
-            attemptedUrl: dashboardUrl
+            attemptedUrl: dashboardUrl,
           });
         }
 
@@ -2231,8 +2232,29 @@ export async function registerRoutes(
         dashboard,
         view,
       });
-      res.status(500).json({ error: `Failed to proxy dashboard: ${err?.message}` });
+      return res.status(500).json({ error: `Failed to proxy dashboard: ${err?.message}` });
     }
+  }
+
+  app.get("/api/ha/dashboard", async (req, res) => {
+    const dashboard = (req.query.dashboard as string) || "lovelace";
+    const view = (req.query.view as string) || "default_view";
+    return proxyHaDashboardHtml(req, res, dashboard, view);
+  });
+
+  // HA sometimes navigates the iframe to real dashboard paths (HTML document requests),
+  // e.g. /dashboard-conex/aa or /lovelace/default_view. On Netlify this hits our function
+  // and would otherwise return "Cannot GET ...". Proxy those to the dashboard endpoint.
+  app.get("/dashboard-:name/:view", async (req, res) => {
+    const dashboard = `dashboard-${req.params.name}`;
+    const view = req.params.view || "default_view";
+    return proxyHaDashboardHtml(req, res, dashboard, view);
+  });
+
+  app.get("/lovelace/:view", async (req, res) => {
+    const dashboard = "lovelace";
+    const view = req.params.view || "default_view";
+    return proxyHaDashboardHtml(req, res, dashboard, view);
   });
 
   // Catch-all route for /ha/* to handle any direct navigation or resource requests
