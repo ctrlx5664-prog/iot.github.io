@@ -538,13 +538,19 @@ export async function registerRoutes(
     }
 
     try {
-      // Ensure path doesn't have leading slash to avoid double slashes
-      const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-      const targetUrl = `${haBaseUrl}/${cleanPath}${queryString}`;
+      // Normalize path: fix double /static/ paths (e.g., /static/fonts/... -> /fonts/...)
+      // This can happen if HTML replacement creates /api/ha/static/static/...
+      let normalizedPath = path.startsWith('/') ? path.substring(1) : path;
+      // Fix double /static/ at the beginning: static/static/... -> static/...
+      if (normalizedPath.startsWith('static/static/')) {
+        normalizedPath = normalizedPath.substring(7); // Remove 'static/'
+        console.log("[HA Static] Fixed double /static/ path:", path, "->", normalizedPath);
+      }
+      const targetUrl = `${haBaseUrl}/${normalizedPath}${queryString}`;
       console.log("[HA Static] Proxying to HA:", {
         method: req.method,
         path,
-        cleanPath,
+        normalizedPath,
         targetUrl,
         hasBody: !!req.body,
       });
@@ -1116,8 +1122,14 @@ export async function registerRoutes(
                 return url;
               }
               
-              // Already proxied URLs - keep them
+              // Already proxied URLs - keep them (but fix double /static/ if present)
               if (url.startsWith('/api/ha/static/')) {
+                // Fix double /static/ paths: /api/ha/static/static/... -> /api/ha/static/...
+                if (url.startsWith('/api/ha/static/static/')) {
+                  const fixed = '/api/ha/static' + url.substring('/api/ha/static/static'.length);
+                  console.log('[HA Proxy] Fixing double /static/ path:', url, '->', fixed);
+                  return fixed;
+                }
                 console.log('[HA Proxy] URL already proxied:', url);
                 return url;
               }
