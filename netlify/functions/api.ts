@@ -8,27 +8,6 @@ export const handler: Handler = async (event, context) => {
   const app = await appPromise;
   const handler = serverless(app);
 
-  // Home Assistant SPA sometimes navigates the iframe document to "/<dashboard>/<view>"
-  // (e.g. "/dashboard-conex/aa") including auth_callback query params.
-  // When those paths are rewritten to this function, Netlify can keep the ORIGINAL path
-  // in event.path. Teach the function to route them to our dashboard proxy endpoint.
-  const qs = event.queryStringParameters ?? {};
-  if (qs.dashboard && qs.view && event.path && event.path.startsWith(`/${qs.dashboard}/`)) {
-    event = { ...event, path: "/api/ha/dashboard" };
-  }
-
-  // Also handle direct SPA routes without explicit query (best-effort).
-  // Example: /dashboard-conex/aa  -> /api/ha/dashboard?dashboard=dashboard-conex&view=aa
-  const m = event.path?.match(/^\/([^/]+)\/([^/]+)$/);
-  if (m && !qs.dashboard && !qs.view) {
-    const [, dashboard, view] = m;
-    event = {
-      ...event,
-      path: "/api/ha/dashboard",
-      queryStringParameters: { ...(event.queryStringParameters ?? {}), dashboard, view },
-    };
-  }
-
   // When using a Netlify redirect like:
   //   /api/* -> /.netlify/functions/api/:splat
   //   /ha-proxy-sw.js -> /.netlify/functions/api/ha-proxy-sw.js
