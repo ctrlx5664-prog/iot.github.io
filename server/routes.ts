@@ -752,11 +752,10 @@ export async function registerRoutes(
           return;
         }
         
-        // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
-        if (path.startsWith('/auth/')) {
-          console.log('[HA Proxy SW] Skipping auth endpoint:', path);
-          return; // Let it through normally
-        }
+        // IMPORTANT: DO NOT skip /auth/*.
+        // If we let /auth/* go through normally, Netlify/Express may redirect to the HA origin,
+        // and that will get blocked by X-Frame-Options: SAMEORIGIN inside our iframe.
+        // We treat /auth/* as something that MUST be proxied same-origin.
         
         // Skip API calls (not resources) - but ONLY if they're NOT resources
         // Some API endpoints might serve resources, so we need to be careful
@@ -778,6 +777,7 @@ export async function registerRoutes(
                                path.startsWith('/homeassistant/') ||
                                path.startsWith('/hacsfiles/') ||
                                path.startsWith('/local/') ||
+                               path.startsWith('/auth/') ||
                                path === '/manifest.json' ||
                                path.startsWith('/service_worker.js');
         
@@ -805,6 +805,10 @@ export async function registerRoutes(
             const pathAfterLocal = path.substring('/local/'.length);
             mappedPath = '/hacsfiles/' + pathAfterLocal;
             console.log('[HA Proxy SW] Mapped /local/ path:', path, '->', mappedPath);
+          } else if (path.startsWith('/auth/')) {
+            // Keep /auth/* but ensure it goes through our /api/ha/static proxy so it stays same-origin.
+            mappedPath = path;
+            console.log('[HA Proxy SW] Ensuring /auth/ stays proxied:', path, '->', mappedPath);
           }
           
           const proxyUrl = currentOrigin + '/api/ha/static' + mappedPath + (url.search || '');
@@ -879,19 +883,68 @@ export async function registerRoutes(
     res.send(swCode);
   });
 
-  // Route for Home Assistant auth endpoints - redirect to HA
-  // These endpoints are used by HA for OAuth/authentication flows
-  app.get("/auth/authorize", async (req, res) => {
-    if (!haBaseUrl) {
-      return res.status(500).json({ error: "HA_BASE_URL not configured" });
+  // Route for Home Assistant auth endpoints - PROXY, don't redirect.
+  // Redirecting causes the browser to iframe the HA origin, which is blocked by X-Frame-Options: SAMEORIGIN.
+  (app as any).all("/auth/*", async (req: Request, res: Response) => {
+    if (!haBaseUrl || !haToken) {
+      return res.status(500).json({ error: "HA_BASE_URL or HA_TOKEN not configured" });
     }
-    
-    // Redirect to Home Assistant auth endpoint with all query parameters
-    const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-    const redirectUrl = `${haBaseUrl}/auth/authorize${queryString}`;
-    
-    console.log("[HA Auth] Redirecting to HA:", redirectUrl);
-    res.redirect(302, redirectUrl);
+
+    const authPath = req.originalUrl; // includes "/auth/..." + query string
+    const targetUrl = `${haBaseUrl}${authPath}`;
+    console.log("[HA Auth] Proxying auth request to HA:", { method: req.method, authPath, targetUrl });
+
+    try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${haToken}`,
+        "User-Agent": req.headers["user-agent"]?.toString() || "Mozilla/5.0",
+        Accept: req.headers["accept"]?.toString() || "*/*",
+        "Accept-Language": req.headers["accept-language"]?.toString() || "en-US,en;q=0.9",
+        Referer: req.headers["referer"]?.toString() || `${haBaseUrl}/`,
+      };
+
+      // Forward content-type if present (POST etc.)
+      if (req.headers["content-type"]) {
+        headers["Content-Type"] = req.headers["content-type"].toString();
+      }
+
+      const fetchOptions: RequestInit = {
+        method: req.method,
+        headers,
+      };
+
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        // Express may have parsed JSON; handle both string/buffer/object
+        const bodyAny = (req as any).body;
+        if (bodyAny !== undefined && bodyAny !== null) {
+          if (typeof bodyAny === "string" || Buffer.isBuffer(bodyAny)) {
+            fetchOptions.body = bodyAny as any;
+          } else {
+            fetchOptions.body = JSON.stringify(bodyAny);
+            if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
+          }
+        }
+      }
+
+      const response = await fetch(targetUrl, fetchOptions);
+
+      // Forward status + key headers
+      res.status(response.status);
+      const contentType = response.headers.get("content-type");
+      if (contentType) res.setHeader("Content-Type", contentType);
+      const cacheControl = response.headers.get("cache-control");
+      if (cacheControl) res.setHeader("Cache-Control", cacheControl);
+
+      // IMPORTANT: allow embedding of proxied auth pages within our iframe
+      res.setHeader("X-Frame-Options", "ALLOWALL");
+      res.setHeader("Content-Security-Policy", "frame-ancestors *");
+
+      const buf = Buffer.from(await response.arrayBuffer());
+      return res.send(buf);
+    } catch (err: any) {
+      console.error("[HA Auth] Error proxying auth request:", { targetUrl, error: err?.message });
+      return res.status(500).end();
+    }
   });
 
   // Simplified route for Home Assistant static assets via /api/ha/static/*
@@ -1288,12 +1341,14 @@ export async function registerRoutes(
                 }
               }
               
-              // Relative URLs - use proxy (except API calls and auth endpoints)
+              // Relative URLs - use proxy
               if (url.startsWith('/')) {
-                // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
+                // IMPORTANT: DO NOT leave /auth/* as-is.
+                // If /auth/* escapes our origin, the HA origin will be iframed and blocked by X-Frame-Options.
                 if (url.startsWith('/auth/')) {
-                  console.log('[HA Proxy] Auth endpoint, keeping as-is:', url);
-                  return url;
+                  const rewritten = '/api/ha/static' + url;
+                  console.log('[HA Proxy] Rewriting auth URL to stay same-origin:', url, '->', rewritten);
+                  return rewritten;
                 }
                 // Check if it's a static asset path (not API)
                 if (!url.startsWith('/api/')) {
@@ -1348,10 +1403,12 @@ export async function registerRoutes(
                   return originalFetch(urlStr, options);
                 }
                 
-                // Skip auth endpoints - these are Home Assistant API endpoints, not static resources
+                // IMPORTANT: DO NOT skip /auth/*.
+                // Proxy it same-origin to avoid the browser following redirects to HA origin (X-Frame-Options block).
                 if (path.startsWith('/auth/')) {
-                  console.log('[HA Proxy] Fetch: Skipping auth endpoint:', path);
-                  return originalFetch(urlStr, options);
+                  const proxiedAuth = currentOrigin + '/api/ha/static' + path;
+                  console.log('[HA Proxy] Fetch: Proxying auth endpoint same-origin:', path, '->', proxiedAuth);
+                  return originalFetch(proxiedAuth, options);
                 }
                 
                 // Skip real API calls (but not resources)
