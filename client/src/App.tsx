@@ -110,18 +110,11 @@ export default function App() {
             </div>
           </header>
           <main className="flex-1 overflow-y-auto">
-            {/* Home Assistant needs full width, no padding */}
-            {location === "/ha" ? (
+            <div className="max-w-7xl mx-auto px-6 py-6">
               <WouterRouter hook={routerHook}>
                 <Routes />
               </WouterRouter>
-            ) : (
-              <div className="max-w-7xl mx-auto px-6 py-6">
-                <WouterRouter hook={routerHook}>
-                  <Routes />
-                </WouterRouter>
-              </div>
-            )}
+            </div>
           </main>
         </div>
       </div>
