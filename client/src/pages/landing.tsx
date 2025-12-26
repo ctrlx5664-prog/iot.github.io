@@ -126,7 +126,7 @@ export default function Landing() {
       {/* Stats Section */}
       <section className="py-20 px-6">
         <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8 text-center">
+          <div className="grid md:grid-cols-2 gap-8 text-center">
             <StatCard value="99.9%" label="Guaranteed Uptime" />
             <StatCard value="24/7" label="Technical Support" />
           </div>
