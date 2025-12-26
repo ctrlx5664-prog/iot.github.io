@@ -915,6 +915,35 @@ export async function registerRoutes(
       // Express `req.path` here includes the "/auth" prefix (e.g. "/auth/token").
       // Also, with the wildcard route "/auth/*", Express sets req.params[0] to the splat (e.g. "token").
       const splat = (req.params as any)?.[0];
+
+      // AUTO-LOGIN: Intercept /auth/authorize and auto-complete the OAuth flow
+      // When HA frontend redirects to /auth/authorize, we automatically approve it
+      // and redirect back with a fake authorization code that our /auth/token handler will accept.
+      if (req.path === "/auth/authorize" || req.originalUrl.startsWith("/auth/authorize") || splat === "authorize") {
+        const redirectUri = (req.query.redirect_uri as string) || "/";
+        const state = (req.query.state as string) || "";
+        const clientId = (req.query.client_id as string) || "";
+        
+        console.log("[HA Auth] Auto-approving /auth/authorize:", { redirectUri, state, clientId });
+        
+        // Generate a fake authorization code (we'll accept any code in /auth/token)
+        const fakeCode = "proxy-auth-code-" + Date.now();
+        
+        // Build the callback URL with the fake code
+        const callbackUrl = new URL(redirectUri, req.protocol + "://" + req.get("host"));
+        callbackUrl.searchParams.set("code", fakeCode);
+        if (state) {
+          callbackUrl.searchParams.set("state", state);
+        }
+        
+        console.log("[HA Auth] Redirecting to callback:", callbackUrl.toString());
+        
+        // Allow iframe embedding and redirect
+        res.setHeader("X-Frame-Options", "ALLOWALL");
+        res.setHeader("Content-Security-Policy", "frame-ancestors *");
+        return res.redirect(302, callbackUrl.toString());
+      }
+
       if (req.path === "/auth/token" || req.originalUrl.startsWith("/auth/token") || splat === "token") {
         const now = Date.now();
         const expiresInSeconds = 60 * 60 * 24 * 365 * 10; // 10 years
@@ -1518,7 +1547,7 @@ app-drawer-layout {
               // HA frontend expects tokens in storage (per-origin). If they're missing,
               // it shows the login flow even if we add Authorization headers at the network layer.
               (function seedHaTokens() {
-                const accessToken = "${haToken}";
+                const accessToken = ${JSON.stringify(haToken)};
                 // IMPORTANT:
                 // We are serving HA's frontend from *this* origin (the proxy), so HA must treat
                 // the proxy origin as the "hassUrl" base for API/auth calls. If we seed the real
@@ -1562,7 +1591,7 @@ app-drawer-layout {
 
               console.log('[HA Proxy] Configuration set:', {
                 hasToken: true,
-                hassUrl: "${haBaseUrl}"
+                hassUrl: ${JSON.stringify(haBaseUrl)}
               });
             
             // Helper function to rewrite URLs - use proxy for static assets, keep API calls relative
@@ -1571,7 +1600,7 @@ app-drawer-layout {
               if (!url) return url;
               if (typeof url !== 'string') url = url.toString();
 
-              const haBaseUrlValue = "${haBaseUrl}";
+              const haBaseUrlValue = ${JSON.stringify(haBaseUrl)};
               const wsBaseUrlValue = (haBaseUrlValue || "").replace(/^https?:/, haBaseUrlValue.startsWith("https") ? "wss:" : "ws:");
               
               // Skip data URLs and blob URLs
@@ -1881,11 +1910,12 @@ app-drawer-layout {
               }
               
               // If URL points to HA and is an API call, add auth header
-              const haBaseUrlValue = "${haBaseUrl}";
+              const haBaseUrlValue = ${JSON.stringify(haBaseUrl)};
+              const haTokenValue = ${JSON.stringify(haToken)};
               if (haBaseUrlValue && rewrittenUrl.startsWith(haBaseUrlValue) && rewrittenUrl.includes('/api/')) {
                 options = options || {};
                 options.headers = options.headers || {};
-                options.headers['Authorization'] = 'Bearer ${haToken}';
+                options.headers['Authorization'] = 'Bearer ' + haTokenValue;
               }
               
               return originalFetch(rewrittenUrl, options).catch(function(error) {
@@ -2167,7 +2197,7 @@ app-drawer-layout {
             window.WebSocket = function(url, protocols) {
               const urlStr = typeof url === 'string' ? url : url.toString();
               let rewrittenUrl = urlStr;
-              const haBaseUrlValue = "${haBaseUrl}";
+              const haBaseUrlValue = ${JSON.stringify(haBaseUrl)};
               const wsBaseUrlValue = (haBaseUrlValue || "").replace(/^https?:/, haBaseUrlValue.startsWith("https") ? "wss:" : "ws:");
               
               // Ensure WebSocket URLs point to HA
