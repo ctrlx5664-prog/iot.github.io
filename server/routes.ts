@@ -116,7 +116,12 @@ export async function registerRoutes(
   await ensureDefaultUser();
 
   // --- Home Assistant proxy helpers ---
-  const haBaseUrl = (process.env.HA_BASE_URL ?? "").replace(/\/+$/, "");
+  let haBaseUrl = (process.env.HA_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  // Allow setting HA_BASE_URL as just a hostname (e.g. "ctrlxprod.diogomendes.me").
+  // Node fetch requires an absolute URL with scheme, otherwise it is treated as a relative path.
+  if (haBaseUrl && !/^https?:\/\//i.test(haBaseUrl)) {
+    haBaseUrl = `https://${haBaseUrl}`;
+  }
   const haToken = process.env.HA_TOKEN ?? "";
 
   async function haRequest(
@@ -1110,6 +1115,15 @@ export async function registerRoutes(
         // Replace with empty comment to preserve line numbers for debugging
         return `<!-- base tag removed: ${match.replace(/</g, '&lt;').replace(/>/g, '&gt;')} -->`;
       })
+      // CRITICAL: Remove CSP meta tags (if present) because they can block our injected inline script.
+      // We already set CSP headers on the proxied response.
+      .replace(
+        /<meta[^>]+http-equiv=["']content-security-policy["'][^>]*>/gi,
+        (match) => {
+          console.log("[HA Dashboard] Removing CSP meta tag:", match);
+          return `<!-- csp meta removed -->`;
+        },
+      )
       // CRITICAL: Replace problematic path patterns that need special mapping
       // These must be done BEFORE the generic replacements to ensure correct mapping
       // Map /homeassistant/www/ paths (HACS resources) - these need to go through hacsfiles
@@ -1134,6 +1148,11 @@ export async function registerRoutes(
         if (path.startsWith('api/')) {
           return match;
         }
+        // Auth paths must stay same-origin so our Express "/auth/*" proxy handler can answer /auth/token.
+        // Rewriting /auth/* into /api/ha/static/* breaks the HA login/token refresh flow.
+        if (path.startsWith('auth/')) {
+          return match;
+        }
         // Check if it's a modulepreload or preload link, or a resource file
         const isModulePreload = /rel=["'](?:modulepreload|preload)["']/i.test(before + after);
         const isResourceFile = /\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml)$/i.test(path);
@@ -1153,6 +1172,10 @@ export async function registerRoutes(
         if (path.startsWith('api/')) {
           return match;
         }
+        // Auth paths must stay same-origin so our Express "/auth/*" proxy handler can answer /auth/token.
+        if (path.startsWith('auth/')) {
+          return match;
+        }
         // All other resources go through proxy to avoid CORS
         const newUrl = `/api/ha/static/${path}`;
         hrefReplacements++;
@@ -1164,6 +1187,10 @@ export async function registerRoutes(
       .replace(/<script([^>]*?)src="\/([^"]+)"([^>]*?)>/gi, (match, before, path, after) => {
         // API paths stay relative
         if (path.startsWith('api/')) {
+          return match;
+        }
+        // Auth paths must stay same-origin so our Express "/auth/*" proxy handler can answer /auth/token.
+        if (path.startsWith('auth/')) {
           return match;
         }
         // All script resources go through proxy
@@ -1179,6 +1206,10 @@ export async function registerRoutes(
         if (path.startsWith('api/')) {
           return match;
         }
+        // Auth paths must stay same-origin so our Express "/auth/*" proxy handler can answer /auth/token.
+        if (path.startsWith('auth/')) {
+          return match;
+        }
         // All other resources go through proxy
         const newUrl = `/api/ha/static/${path}`;
         srcReplacements++;
@@ -1188,6 +1219,10 @@ export async function registerRoutes(
       .replace(/url\(['"]?\/([^'"]+)['"]?\)/g, (match, path) => {
         // API paths stay relative
         if (path.startsWith('api/')) {
+          return match;
+        }
+        // Auth paths must stay same-origin so our Express "/auth/*" proxy handler can answer /auth/token.
+        if (path.startsWith('auth/')) {
           return match;
         }
         // CSS URLs go through proxy to avoid CORS
@@ -2256,6 +2291,8 @@ app-drawer-layout {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("X-Frame-Options", "ALLOWALL");
     res.setHeader("Content-Security-Policy", "frame-ancestors *");
+    // Debug marker: lets you verify in DevTools Network that you are seeing injected/proxied HTML.
+    res.setHeader("X-HA-Proxy", "1");
     res.send(html);
   }
 
