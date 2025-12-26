@@ -1,4 +1,4 @@
-import { Building2, Lightbulb, Monitor, Home, Plus, Users, LayoutDashboard } from "lucide-react";
+import { Building2, Lightbulb, Monitor, Home, Plus, Users, LayoutDashboard, Settings } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -23,9 +23,33 @@ import {
 } from "@/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { getToken, apiUrl } from "@/lib/auth";
+
+interface UserInfo {
+  id: string;
+  username: string;
+  email: string;
+  hasOrganizations: boolean;
+}
 
 export function AppSidebar() {
   const [location] = useLocation();
+
+  // Get current user info
+  const { data: userData } = useQuery<{ user: UserInfo }>({
+    queryKey: ["/api/auth/me"],
+    queryFn: async () => {
+      const token = getToken();
+      if (!token) throw new Error("Not authenticated");
+      const res = await fetch(apiUrl("/api/auth/me"), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch user");
+      return res.json();
+    },
+  });
+
+  const hasOrganizations = userData?.user?.hasOrganizations ?? false;
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -97,21 +121,24 @@ export function AppSidebar() {
                 >
                   <Link href="/organizations" data-testid="link-organizations">
                     <Users className="w-4 h-4" />
-                    <span>Organizations</span>
+                    <span>Organizações</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/ha"}
-                >
-                  <Link href="/ha" data-testid="link-home-assistant">
-                    <LayoutDashboard className="w-4 h-4" />
-                    <span>Home Assistant</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {/* Home Assistant only shows when user has organizations */}
+              {hasOrganizations && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/ha"}
+                  >
+                    <Link href="/ha" data-testid="link-home-assistant">
+                      <LayoutDashboard className="w-4 h-4" />
+                      <span>Dashboard de Controlo</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

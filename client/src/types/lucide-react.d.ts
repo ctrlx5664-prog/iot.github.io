@@ -27,5 +27,13 @@ declare module "lucide-react" {
   export const SkipBack: Icon;
   export const Tv: Icon;
   export const Loader2: Icon;
+  export const Settings: Icon;
+  export const LayoutDashboard: Icon;
+  export const Mail: Icon;
+  export const Shield: Icon;
+  export const UserPlus: Icon;
+  export const UserMinus: Icon;
+  export const MoreVertical: Icon;
+  export const Trash2: Icon;
 }
 

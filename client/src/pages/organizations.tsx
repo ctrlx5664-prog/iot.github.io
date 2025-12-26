@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { apiUrl, getToken } from "@/lib/auth";
-import { Plus, Users, Copy, Check } from "lucide-react";
+import { Plus, Users, Copy, Check, Trash2, Shield, UserMinus, MoreVertical } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,25 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 
 type Organization = {
   id: string;
@@ -36,6 +55,14 @@ type Invite = {
   expiresAt: string | null;
   usedAt: string | null;
   createdAt: string;
+};
+
+type Member = {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  invitedAt: string;
 };
 
 export default function Organizations() {
@@ -58,10 +85,10 @@ export default function Organizations() {
       });
       const data = await res.json();
       if (!res.ok)
-        throw new Error(data?.error || "Failed to load organizations");
+        throw new Error(data?.error || "Falha ao carregar organizações");
       setOrgs(data);
     } catch (err: any) {
-      setError(err?.message || "Failed to load organizations");
+      setError(err?.message || "Falha ao carregar organizações");
     } finally {
       setLoading(false);
     }
@@ -87,13 +114,13 @@ export default function Organizations() {
       });
       const data = await res.json();
       if (!res.ok)
-        throw new Error(data?.error || "Failed to create organization");
+        throw new Error(data?.error || "Falha ao criar organização");
       setCreateDialogOpen(false);
       setNewOrgName("");
       setNewOrgDesc("");
       await loadOrgs();
     } catch (err: any) {
-      setError(err?.message || "Failed to create organization");
+      setError(err?.message || "Falha ao criar organização");
     } finally {
       setCreating(false);
     }
@@ -103,47 +130,47 @@ export default function Organizations() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Organizations</h1>
+          <h1 className="text-2xl font-semibold">Organizações</h1>
           <p className="text-sm text-muted-foreground">
-            Manage your organizations and team members.
+            Gerir organizações e membros da equipa.
           </p>
         </div>
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="w-4 h-4 mr-2" />
-              Create Organization
+              Criar Organização
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Organization</DialogTitle>
+              <DialogTitle>Criar Organização</DialogTitle>
               <DialogDescription>
-                Create a new organization to manage your devices and team.
+                Crie uma nova organização para gerir dispositivos e equipa.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={createOrg} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Name</label>
+                <label className="text-sm font-medium">Nome</label>
                 <Input
                   value={newOrgName}
                   onChange={(e: any) => setNewOrgName(e.target.value)}
-                  placeholder="My Organization"
+                  placeholder="Minha Organização"
                   required
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Description (optional)
+                  Descrição (opcional)
                 </label>
                 <Input
                   value={newOrgDesc}
                   onChange={(e: any) => setNewOrgDesc(e.target.value)}
-                  placeholder="A brief description..."
+                  placeholder="Uma breve descrição..."
                 />
               </div>
               <Button type="submit" className="w-full" disabled={creating}>
-                {creating ? "Creating..." : "Create Organization"}
+                {creating ? "A criar..." : "Criar Organização"}
               </Button>
             </form>
           </DialogContent>
@@ -153,15 +180,15 @@ export default function Organizations() {
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       {loading ? (
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <div className="text-sm text-muted-foreground">A carregar...</div>
       ) : orgs.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-muted-foreground">
-              You don't belong to any organizations yet.
+              Ainda não pertence a nenhuma organização.
             </p>
             <p className="text-sm text-muted-foreground mt-2">
-              Create one or ask for an invite link.
+              Crie uma ou peça um link de convite.
             </p>
           </CardContent>
         </Card>
@@ -183,11 +210,32 @@ interface OrgCardProps {
 }
 
 function OrgCard({ org, onUpdate }: OrgCardProps) {
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [manageDialogOpen, setManageDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("members");
+  const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const [loadingInvites, setLoadingInvites] = useState(false);
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [newInviteRole, setNewInviteRole] = useState("member");
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  async function loadMembers() {
+    setLoadingMembers(true);
+    try {
+      const token = getToken();
+      const res = await fetch(apiUrl(`/api/organizations/${org.id}/members`), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (res.ok) setMembers(data);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingMembers(false);
+    }
+  }
 
   async function loadInvites() {
     setLoadingInvites(true);
@@ -215,7 +263,7 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ role: "member" }),
+        body: JSON.stringify({ role: newInviteRole }),
       });
       if (res.ok) {
         await loadInvites();
@@ -227,6 +275,65 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
     }
   }
 
+  async function removeMember(memberId: string) {
+    if (!confirm("Tem a certeza que quer remover este membro?")) return;
+    setActionLoading(memberId);
+    try {
+      const token = getToken();
+      const res = await fetch(apiUrl(`/api/organizations/${org.id}/members/${memberId}`), {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        await loadMembers();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function updateMemberRole(memberId: string, newRole: string) {
+    setActionLoading(memberId);
+    try {
+      const token = getToken();
+      const res = await fetch(apiUrl(`/api/organizations/${org.id}/members/${memberId}`), {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (res.ok) {
+        await loadMembers();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function deleteInvite(inviteId: string) {
+    setActionLoading(inviteId);
+    try {
+      const token = getToken();
+      const res = await fetch(apiUrl(`/api/organizations/${org.id}/invites/${inviteId}`), {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        await loadInvites();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   function copyInviteLink(code: string) {
     const link = `${window.location.origin}/invite/${code}`;
     navigator.clipboard.writeText(link);
@@ -235,12 +342,36 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
   }
 
   useEffect(() => {
-    if (inviteDialogOpen) {
+    if (manageDialogOpen) {
+      loadMembers();
       loadInvites();
     }
-  }, [inviteDialogOpen]);
+  }, [manageDialogOpen]);
 
   const isAdmin = org.role === "owner" || org.role === "admin";
+  const isOwner = org.role === "owner";
+
+  const getRoleBadgeVariant = (role: string) => {
+    switch (role) {
+      case "owner":
+        return "default";
+      case "admin":
+        return "secondary";
+      default:
+        return "outline";
+    }
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case "owner":
+        return "Proprietário";
+      case "admin":
+        return "Admin";
+      default:
+        return "Membro";
+    }
+  };
 
   return (
     <Card>
@@ -252,74 +383,179 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
               <CardDescription>{org.description}</CardDescription>
             )}
           </div>
-          <Badge variant={org.role === "owner" ? "default" : "secondary"}>
-            {org.role}
+          <Badge variant={getRoleBadgeVariant(org.role)}>
+            {getRoleLabel(org.role)}
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
         {isAdmin && (
-          <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+          <Dialog open={manageDialogOpen} onOpenChange={setManageDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="w-full">
                 <Users className="w-4 h-4 mr-2" />
-                Manage Invites
+                Gerir Equipa
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>Invite Members</DialogTitle>
+                <DialogTitle>Gerir {org.name}</DialogTitle>
                 <DialogDescription>
-                  Create invite links for new team members.
+                  Gerir membros e convites da organização.
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                <Button onClick={createInvite} disabled={creatingInvite}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  {creatingInvite ? "Creating..." : "Create Invite Link"}
-                </Button>
-
-                {loadingInvites ? (
-                  <p className="text-sm text-muted-foreground">
-                    Loading invites...
-                  </p>
-                ) : invites.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No invites yet.
-                  </p>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-auto">
-                    {invites.map((invite) => (
-                      <div
-                        key={invite.id}
-                        className="flex items-center justify-between p-2 border rounded"
-                      >
-                        <div className="text-sm">
-                          <code className="text-xs">
-                            {invite.inviteCode.slice(0, 8)}...
-                          </code>
-                          <span className="ml-2 text-muted-foreground">
-                            {invite.usedAt ? "Used" : "Active"}
-                          </span>
-                        </div>
-                        {!invite.usedAt && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyInviteLink(invite.inviteCode)}
-                          >
-                            {copiedCode === invite.inviteCode ? (
-                              <Check className="w-4 h-4" />
-                            ) : (
-                              <Copy className="w-4 h-4" />
+              
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="members">
+                    Membros ({members.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="invites">
+                    Convites ({invites.filter(i => !i.usedAt).length})
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="members" className="space-y-4">
+                  {loadingMembers ? (
+                    <p className="text-sm text-muted-foreground">A carregar...</p>
+                  ) : members.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Sem membros.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-auto">
+                      {members.map((member) => (
+                        <div
+                          key={member.id}
+                          className="flex items-center justify-between p-3 border rounded-lg"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {member.username}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {member.email}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={getRoleBadgeVariant(member.role)}>
+                              {getRoleLabel(member.role)}
+                            </Badge>
+                            {isOwner && member.role !== "owner" && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm"
+                                    disabled={actionLoading === member.id}
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {member.role === "member" && (
+                                    <DropdownMenuItem
+                                      onClick={() => updateMemberRole(member.id, "admin")}
+                                    >
+                                      <Shield className="w-4 h-4 mr-2" />
+                                      Tornar Admin
+                                    </DropdownMenuItem>
+                                  )}
+                                  {member.role === "admin" && (
+                                    <DropdownMenuItem
+                                      onClick={() => updateMemberRole(member.id, "member")}
+                                    >
+                                      <UserMinus className="w-4 h-4 mr-2" />
+                                      Remover Admin
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuItem
+                                    className="text-red-600"
+                                    onClick={() => removeMember(member.id)}
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Remover
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             )}
-                          </Button>
-                        )}
-                      </div>
-                    ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="invites" className="space-y-4">
+                  <div className="flex gap-2">
+                    <Select value={newInviteRole} onValueChange={setNewInviteRole}>
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="member">Membro</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button onClick={createInvite} disabled={creatingInvite} className="flex-1">
+                      <Plus className="w-4 h-4 mr-2" />
+                      {creatingInvite ? "A criar..." : "Criar Link"}
+                    </Button>
                   </div>
-                )}
-              </div>
+
+                  {loadingInvites ? (
+                    <p className="text-sm text-muted-foreground">A carregar...</p>
+                  ) : invites.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Sem convites.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-auto">
+                      {invites.map((invite) => (
+                        <div
+                          key={invite.id}
+                          className="flex items-center justify-between p-3 border rounded-lg"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs bg-muted px-2 py-1 rounded">
+                                {invite.inviteCode.slice(0, 8)}...
+                              </code>
+                              <Badge variant={getRoleBadgeVariant(invite.role)}>
+                                {getRoleLabel(invite.role)}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {invite.usedAt ? "Usado" : "Ativo"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {!invite.usedAt && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => copyInviteLink(invite.inviteCode)}
+                                >
+                                  {copiedCode === invite.inviteCode ? (
+                                    <Check className="w-4 h-4" />
+                                  ) : (
+                                    <Copy className="w-4 h-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => deleteInvite(invite.id)}
+                                  disabled={actionLoading === invite.id}
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-500" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </DialogContent>
           </Dialog>
         )}

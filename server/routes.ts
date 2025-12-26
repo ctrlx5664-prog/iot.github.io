@@ -16,8 +16,9 @@ import {
 import { ZodError } from "zod";
 import crypto, { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { getDb } from "./db/client";
-import { users, organizations, userOrganizations, organizationInvites } from "./db/schema";
-import { eq, and } from "drizzle-orm";
+import { users, organizations, userOrganizations, organizationInvites, verificationCodes } from "./db/schema";
+import { eq, and, gt } from "drizzle-orm";
+import { generateVerificationCode, sendVerificationCodeEmail } from "./email";
 
 export type BroadcastDeviceUpdate = (
   type: "light_update" | "tv_update",
@@ -186,31 +187,222 @@ export async function registerRoutes(
     }
   }
 
-  // --- Auth routes ---
+  // --- Auth routes with 2FA ---
+  
+  // Helper to create and send verification code
+  async function createAndSendVerificationCode(
+    userId: string,
+    email: string,
+    type: "email_verify" | "login_2fa"
+  ): Promise<boolean> {
+    const db = await getDb();
+    const code = generateVerificationCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    
+    await db.insert(verificationCodes).values({
+      userId,
+      code,
+      type,
+      expiresAt,
+    });
+    
+    const emailType = type === "email_verify" ? "register" : "login";
+    return sendVerificationCodeEmail(email, code, emailType);
+  }
+  
+  // Helper to verify code
+  async function verifyCode(
+    userId: string,
+    code: string,
+    type: "email_verify" | "login_2fa"
+  ): Promise<boolean> {
+    const db = await getDb();
+    const now = new Date();
+    
+    const [validCode] = await db
+      .select()
+      .from(verificationCodes)
+      .where(
+        and(
+          eq(verificationCodes.userId, userId),
+          eq(verificationCodes.code, code),
+          eq(verificationCodes.type, type),
+          gt(verificationCodes.expiresAt, now)
+        )
+      )
+      .limit(1);
+    
+    if (!validCode || validCode.usedAt) {
+      return false;
+    }
+    
+    // Mark code as used
+    await db
+      .update(verificationCodes)
+      .set({ usedAt: now })
+      .where(eq(verificationCodes.id, validCode.id));
+    
+    return true;
+  }
+
+  // Step 1: Login - verify credentials and send 2FA code
   app.post("/api/auth/login", async (req, res) => {
     const { username, password } = req.body || {};
     const user = username ? await findUser(username) : null;
     if (!user || !verifyPassword(password ?? "", user.passwordHash)) {
-      return res.status(401).json({ error: "Invalid credentials" });
+      return res.status(401).json({ error: "Credenciais inválidas" });
     }
-    const token = signJwt({ sub: username });
-    res.json({ token, user: { username } });
+    
+    // Check if email is verified
+    if (!user.emailVerified) {
+      return res.status(403).json({ 
+        error: "Email não verificado",
+        requiresEmailVerification: true,
+        userId: user.id 
+      });
+    }
+    
+    // Send 2FA code
+    const sent = await createAndSendVerificationCode(user.id, user.email, "login_2fa");
+    if (!sent) {
+      return res.status(500).json({ error: "Falha ao enviar código de verificação" });
+    }
+    
+    // Return pending state - user must verify 2FA
+    res.json({ 
+      requires2FA: true,
+      userId: user.id,
+      email: user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3"), // Mask email
+      message: "Código de verificação enviado para o seu email"
+    });
   });
 
-  app.post("/api/auth/register", async (req, res) => {
-    const { username, password } = req.body || {};
-    if (!username || !password) {
-      return res.status(400).json({ error: "username and password are required" });
+  // Step 2: Verify 2FA code and complete login
+  app.post("/api/auth/verify-2fa", async (req, res) => {
+    const { userId, code } = req.body || {};
+    if (!userId || !code) {
+      return res.status(400).json({ error: "userId e código são obrigatórios" });
     }
-    const existing = await findUser(username);
-    if (existing) {
-      return res.status(409).json({ error: "User already exists" });
-    }
-    const passwordHash = hashPassword(password);
+    
     const db = await getDb();
-    await db.insert(users).values({ username, passwordHash });
-    const token = signJwt({ sub: username });
-    res.status(201).json({ token, user: { username } });
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) {
+      return res.status(404).json({ error: "Utilizador não encontrado" });
+    }
+    
+    const valid = await verifyCode(userId, code, "login_2fa");
+    if (!valid) {
+      return res.status(401).json({ error: "Código inválido ou expirado" });
+    }
+    
+    const token = signJwt({ sub: user.username });
+    res.json({ token, user: { username: user.username, email: user.email } });
+  });
+
+  // Register - Step 1: Create account and send verification email
+  app.post("/api/auth/register", async (req, res) => {
+    const { username, email, password } = req.body || {};
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: "username, email e password são obrigatórios" });
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Email inválido" });
+    }
+    
+    const db = await getDb();
+    
+    // Check if username exists
+    const existingUsername = await findUser(username);
+    if (existingUsername) {
+      return res.status(409).json({ error: "Nome de utilizador já existe" });
+    }
+    
+    // Check if email exists
+    const [existingEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    if (existingEmail) {
+      return res.status(409).json({ error: "Email já registado" });
+    }
+    
+    const passwordHash = hashPassword(password);
+    const [newUser] = await db.insert(users).values({ 
+      username, 
+      email,
+      passwordHash,
+      emailVerified: false 
+    }).returning();
+    
+    // Send verification email
+    const sent = await createAndSendVerificationCode(newUser.id, email, "email_verify");
+    if (!sent) {
+      // Delete the user if email failed
+      await db.delete(users).where(eq(users.id, newUser.id));
+      return res.status(500).json({ error: "Falha ao enviar email de verificação" });
+    }
+    
+    res.status(201).json({ 
+      requiresEmailVerification: true,
+      userId: newUser.id,
+      email: email.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
+      message: "Conta criada! Verifique o seu email para ativar a conta."
+    });
+  });
+
+  // Register - Step 2: Verify email
+  app.post("/api/auth/verify-email", async (req, res) => {
+    const { userId, code } = req.body || {};
+    if (!userId || !code) {
+      return res.status(400).json({ error: "userId e código são obrigatórios" });
+    }
+    
+    const db = await getDb();
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) {
+      return res.status(404).json({ error: "Utilizador não encontrado" });
+    }
+    
+    if (user.emailVerified) {
+      return res.status(400).json({ error: "Email já verificado" });
+    }
+    
+    const valid = await verifyCode(userId, code, "email_verify");
+    if (!valid) {
+      return res.status(401).json({ error: "Código inválido ou expirado" });
+    }
+    
+    // Mark email as verified
+    await db.update(users).set({ emailVerified: true }).where(eq(users.id, userId));
+    
+    const token = signJwt({ sub: user.username });
+    res.json({ 
+      token, 
+      user: { username: user.username, email: user.email },
+      message: "Email verificado com sucesso!"
+    });
+  });
+
+  // Resend verification code
+  app.post("/api/auth/resend-code", async (req, res) => {
+    const { userId, type } = req.body || {};
+    if (!userId || !type) {
+      return res.status(400).json({ error: "userId e type são obrigatórios" });
+    }
+    
+    const db = await getDb();
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) {
+      return res.status(404).json({ error: "Utilizador não encontrado" });
+    }
+    
+    const codeType = type === "register" ? "email_verify" : "login_2fa";
+    const sent = await createAndSendVerificationCode(user.id, user.email, codeType);
+    if (!sent) {
+      return res.status(500).json({ error: "Falha ao enviar código" });
+    }
+    
+    res.json({ message: "Novo código enviado" });
   });
 
   app.get("/api/auth/me", async (req, res) => {
@@ -222,7 +414,26 @@ export async function registerRoutes(
     if (!payload) {
       return res.status(401).json({ error: "Invalid or expired token" });
     }
-    res.json({ user: { username: payload.sub } });
+    
+    // Get full user info including organizations
+    const db = await getDb();
+    const user = await findUser(payload.sub);
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+    
+    // Get user's organizations
+    const memberships = await db.select().from(userOrganizations).where(eq(userOrganizations.userId, user.id));
+    const hasOrganizations = memberships.length > 0;
+    
+    res.json({ 
+      user: { 
+        id: user.id,
+        username: user.username, 
+        email: user.email,
+        hasOrganizations 
+      } 
+    });
   });
 
   // Protect all other /api routes
@@ -344,13 +555,100 @@ export async function registerRoutes(
       const memberDetails = await Promise.all(
         members.map(async (m: any) => {
           const [u] = await db.select().from(users).where(eq(users.id, m.userId));
-          return { id: m.id, userId: m.userId, username: u?.username, role: m.role, invitedAt: m.invitedAt };
+          return { 
+            id: m.id, 
+            userId: m.userId, 
+            username: u?.username, 
+            email: u?.email,
+            role: m.role, 
+            invitedAt: m.invitedAt 
+          };
         })
       );
       
       res.json(memberDetails);
     } catch (error: any) {
       res.status(500).json({ error: "Failed to fetch members" });
+    }
+  });
+
+  // Update member role
+  app.patch("/api/organizations/:id/members/:memberId", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      // Check if requester is owner
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || membership.role !== "owner") {
+        return res.status(403).json({ error: "Only owners can change member roles" });
+      }
+      
+      // Get target member
+      const [targetMember] = await db.select().from(userOrganizations)
+        .where(eq(userOrganizations.id, req.params.memberId));
+      
+      if (!targetMember) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+      
+      // Can't change owner role
+      if (targetMember.role === "owner") {
+        return res.status(403).json({ error: "Cannot change owner role" });
+      }
+      
+      const { role } = req.body || {};
+      if (!role || !["admin", "member"].includes(role)) {
+        return res.status(400).json({ error: "Invalid role" });
+      }
+      
+      await db.update(userOrganizations)
+        .set({ role })
+        .where(eq(userOrganizations.id, req.params.memberId));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to update member role" });
+    }
+  });
+
+  // Remove member from organization
+  app.delete("/api/organizations/:id/members/:memberId", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      // Check if requester is owner
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || membership.role !== "owner") {
+        return res.status(403).json({ error: "Only owners can remove members" });
+      }
+      
+      // Get target member
+      const [targetMember] = await db.select().from(userOrganizations)
+        .where(eq(userOrganizations.id, req.params.memberId));
+      
+      if (!targetMember) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+      
+      // Can't remove owner
+      if (targetMember.role === "owner") {
+        return res.status(403).json({ error: "Cannot remove organization owner" });
+      }
+      
+      await db.delete(userOrganizations)
+        .where(eq(userOrganizations.id, req.params.memberId));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to remove member" });
     }
   });
 
@@ -406,6 +704,29 @@ export async function registerRoutes(
       res.json(invites);
     } catch (error: any) {
       res.status(500).json({ error: "Failed to fetch invites" });
+    }
+  });
+
+  // Delete invite
+  app.delete("/api/organizations/:id/invites/:inviteId", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const user = await findUser(req.user?.sub);
+      if (!user) return res.status(401).json({ error: "User not found" });
+      
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, user.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+        return res.status(403).json({ error: "Only owners and admins can delete invites" });
+      }
+      
+      await db.delete(organizationInvites)
+        .where(eq(organizationInvites.id, req.params.inviteId));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to delete invite" });
     }
   });
 
