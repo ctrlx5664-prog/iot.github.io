@@ -1565,7 +1565,10 @@ app-drawer-layout {
                 hassUrl: "${haBaseUrl}"
               });
             
-            // Helper function to rewrite URLs - use proxy for static assets, keep API calls relative
+            // Helper function to rewrite URLs - use proxy for static assets AND HA API calls.
+            // IMPORTANT: HA uses /api/* for its own API. Our app also uses /api/*.
+            // Inside the embedded HA page, we must route HA's /api/* through /api/ha/static/api/*
+            // so it reaches Home Assistant, not the app backend.
             function rewriteUrl(url) {
               const originalUrl = url;
               if (!url) return url;
@@ -1604,10 +1607,13 @@ app-drawer-layout {
                 return url;
               }
               
-              // API calls - keep relative, will be handled by fetch override
+              // HA API calls - route through our HA proxy to avoid colliding with the app backend (/api/*).
               if (url.startsWith('/api/') && !url.startsWith('/api/ha/')) {
-                console.log('[HA Proxy] API call, keeping relative:', url);
-                return url;
+                // Keep app auth routes untouched (rare in HA, but safe).
+                if (url.startsWith('/api/auth/')) return url;
+                const rewritten = '/api/ha/static' + url;
+                console.log('[HA Proxy] Rewriting HA API call:', url, '->', rewritten);
+                return rewritten;
               }
               
               // CRITICAL: Map problematic Home Assistant paths before general processing
@@ -1643,6 +1649,12 @@ app-drawer-layout {
               // Check if URL matches current origin (exact match)
               if (url.startsWith(currentOrigin)) {
                 const path = url.substring(currentOrigin.length);
+                // If it's an HA API call on current origin, route it to HA proxy.
+                if (path.startsWith('/api/') && !path.startsWith('/api/ha/') && !path.startsWith('/api/auth/')) {
+                  const rewritten = '/api/ha/static' + path;
+                  console.log('[HA Proxy] Rewriting current-origin HA API URL:', url, '->', rewritten);
+                  return rewritten;
+                }
                 // If it's not already proxied and not an API call, proxy it
                 if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
                   // Check if it looks like a resource file that should be proxied
@@ -1670,6 +1682,12 @@ app-drawer-layout {
                   const urlObj = new URL(url);
                   if (urlObj.hostname === currentHostname) {
                     const path = urlObj.pathname + urlObj.search + urlObj.hash;
+                    // If it's an HA API call on this hostname, route it to HA proxy.
+                    if (path.startsWith('/api/') && !path.startsWith('/api/ha/') && !path.startsWith('/api/auth/')) {
+                      const rewritten = '/api/ha/static' + path;
+                      console.log('[HA Proxy] Rewriting same-hostname HA API URL:', url, '->', rewritten);
+                      return rewritten;
+                    }
                     // If it's not already proxied and not an API call, proxy it
                     if (!path.startsWith('/api/ha/') && !path.startsWith('/api/')) {
                       // Check if it looks like a resource file that should be proxied
@@ -1700,14 +1718,20 @@ app-drawer-layout {
                   console.log('[HA Proxy] Keeping auth URL same-origin:', url);
                   return url;
                 }
-                // Check if it's a static asset path (not API)
+                // HA API calls must be proxied to HA (not app backend).
+                if (url.startsWith('/api/') && !url.startsWith('/api/ha/')) {
+                  if (url.startsWith('/api/auth/')) return url;
+                  const rewritten = '/api/ha/static' + url;
+                  console.log('[HA Proxy] Rewriting relative HA API URL:', url, '->', rewritten);
+                  return rewritten;
+                }
+                // Everything else under "/" (static assets etc.) goes through proxy
                 if (!url.startsWith('/api/')) {
                   const rewritten = '/api/ha/static' + url;
                   console.log('[HA Proxy] Rewriting relative URL:', url, '->', rewritten);
                   return rewritten;
                 }
-                console.log('[HA Proxy] Relative API call, keeping as-is:', url);
-                return url; // API calls stay as-is
+                return url;
               }
               
               // Relative URLs without leading slash - use proxy
@@ -1758,16 +1782,9 @@ app-drawer-layout {
                   return originalFetch(urlStr, options);
                 }
                 
-                // Skip real API calls (but not resources)
-                if (path.startsWith('/api/') && !path.startsWith('/api/ha/static/')) {
-                  // Check if it's actually a resource (has file extension)
-                  const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
-                  if (!isResourceFile) {
-                    // Real API call, let it through
-                    return originalFetch(urlStr, options);
-                  }
-                  // Otherwise it's a resource, continue to proxy it
-                }
+              // Note: we intentionally DO NOT "skip real API calls" here.
+              // HA's own API is /api/*, and inside this embedded page those must be routed
+              // to HA via rewriteUrl() -> /api/ha/static/api/* (otherwise they'd hit the app backend).
                 
                 // AGGRESSIVE: Intercept ALL resources
                 const isResourceFile = /\.(js|mjs|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|json|xml|webp|avif|wasm)$/i.test(path);
@@ -1831,18 +1848,8 @@ app-drawer-layout {
                 console.log('[HA Proxy] Fetch URL unchanged:', urlStr);
               }
               
-              // If it's an API call (relative /api/ but not /api/ha/static/), proxy it through our server
-              if (urlStr.startsWith('/api/') && !urlStr.startsWith('/api/ha/static/')) {
-                // Convert to absolute URL through our proxy
-                const proxyUrl = window.location.origin + rewrittenUrl;
-                options = options || {};
-                options.headers = options.headers || {};
-                options.headers['Authorization'] = 'Bearer ${haToken}';
-                return originalFetch(proxyUrl, options).catch(function(error) {
-                  console.error('[HA Proxy] Fetch error for:', proxyUrl, error);
-                  throw error;
-                });
-              }
+              // Note: HA API calls (/api/*) are rewritten by rewriteUrl() to /api/ha/static/api/*,
+              // which the backend proxies with server-side Authorization. No client-side header injection needed.
               
               // For proxied static assets, convert to absolute URL
               // This includes resources rewritten from absolute URLs
@@ -1909,10 +1916,6 @@ app-drawer-layout {
               if (rewrittenUrl.startsWith('/api/ha/static/')) {
                 rewrittenUrl = window.location.origin + rewrittenUrl;
                 console.log('[HA Proxy] XHR proxied static asset, absolute URL:', rewrittenUrl);
-              } else if (rewrittenUrl.startsWith('/api/') && !rewrittenUrl.startsWith('/api/ha/static/')) {
-                // API calls - convert to absolute URL through our proxy
-                rewrittenUrl = window.location.origin + rewrittenUrl;
-                console.log('[HA Proxy] XHR API call, absolute URL:', rewrittenUrl);
               }
               
               // Log URL rewrites for debugging
@@ -1925,12 +1928,9 @@ app-drawer-layout {
               return originalXHROpen.call(this, method, rewrittenUrl, ...rest);
             };
             
-            // Override send to add auth header for API calls
+            // Override send (kept for compatibility/logging, but we do not inject Authorization headers here).
+            // The backend HA proxy adds Authorization server-side.
             XMLHttpRequest.prototype.send = function(data) {
-              // If it's an API call, add auth header
-              if (this._haOriginalUrl && this._haOriginalUrl.startsWith('/api/') && !this._haOriginalUrl.startsWith('/api/ha/static/')) {
-                this.setRequestHeader('Authorization', 'Bearer ${haToken}');
-              }
               return originalXHRSend.call(this, data);
             };
             
