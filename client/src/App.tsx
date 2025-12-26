@@ -25,12 +25,13 @@ import HomeAssistant from "@/pages/home-assistant";
 import Organizations from "@/pages/organizations";
 import AcceptInvite from "@/pages/invite";
 import Profile from "@/pages/profile";
+import Landing from "@/pages/landing";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { getToken } from "@/lib/auth";
 
-function Routes() {
+function AuthenticatedRoutes() {
   // Initialize WebSocket connection
   useWebSocket();
 
@@ -40,11 +41,8 @@ function Routes() {
       <Route path="/companies" component={Companies} />
       <Route path="/location/:id" component={LocationDetail} />
       <Route path="/videos" component={Videos} />
-      <Route path="/login" component={Login} />
-      <Route path="/register" component={Register} />
       <Route path="/ha" component={HomeAssistant} />
       <Route path="/organizations" component={Organizations} />
-      <Route path="/invite/:code" component={AcceptInvite} />
       <Route path="/profile" component={Profile} />
       <Route path="/settings" component={Profile} />
       <Route path="*" component={NotFound} />
@@ -52,19 +50,21 @@ function Routes() {
   );
 }
 
-export default function App() {
-  const [location, navigate] = useLocation();
-  const token = getToken();
+function PublicRoutes() {
+  return (
+    <Switch>
+      <Route path="/" component={Landing} />
+      <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
+      <Route path="/invite/:code" component={AcceptInvite} />
+      <Route path="*" component={Landing} />
+    </Switch>
+  );
+}
 
-  useEffect(() => {
-    const isPublicRoute =
-      location === "/login" ||
-      location === "/register" ||
-      location.startsWith("/invite/");
-    if (!token && !isPublicRoute) {
-      navigate("/login");
-    }
-  }, [token, location, navigate]);
+export default function App() {
+  const [location] = useLocation();
+  const token = getToken();
 
   const style: CSSProperties = {
     "--sidebar-width": "16rem",
@@ -79,18 +79,26 @@ export default function App() {
     [routerMode]
   );
 
-  const isAuthPage =
-    location === "/login" ||
-    location === "/register" ||
-    location.startsWith("/invite/");
+  // If not authenticated, show public routes (landing, login, register)
+  if (!token) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider defaultTheme="dark">
+          <TooltipProvider>
+            <div className="min-h-screen bg-background">
+              <WouterRouter hook={routerHook}>
+                <PublicRoutes />
+              </WouterRouter>
+            </div>
+            <Toaster />
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
 
-  const shell = isAuthPage ? (
-    <div className="min-h-screen bg-background">
-      <WouterRouter hook={routerHook}>
-        <Routes />
-      </WouterRouter>
-    </div>
-  ) : (
+  // Authenticated app shell
+  const shell = (
     <SidebarProvider style={style}>
       <div className="flex h-screen w-full">
         <AppSidebar />
@@ -112,7 +120,7 @@ export default function App() {
           <main className="flex-1 overflow-y-auto">
             <div className="max-w-7xl mx-auto px-6 py-6">
               <WouterRouter hook={routerHook}>
-                <Routes />
+                <AuthenticatedRoutes />
               </WouterRouter>
             </div>
           </main>

@@ -42,5 +42,12 @@ declare module "lucide-react" {
   export const Lock: Icon;
   export const Eye: Icon;
   export const EyeOff: Icon;
+  export const Zap: Icon;
+  export const BarChart3: Icon;
+  export const Cpu: Icon;
+  export const Globe: Icon;
+  export const Clock: Icon;
+  export const ChevronRight: Icon;
+  export const MonitorSmartphone: Icon;
 }
 

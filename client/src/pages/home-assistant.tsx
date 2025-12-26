@@ -115,10 +115,10 @@ export default function HomeAssistant() {
               {/* Brand name */}
               <div className="text-center">
                 <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                  IoT Manager
+                  CtrlX
                 </h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Device Control
+                  IoT Manager
                 </p>
               </div>
 

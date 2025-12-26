@@ -65,8 +65,8 @@ export function sendVerificationCodeEmail(
 ): Promise<boolean> {
   const subject =
     type === "register"
-      ? "Verifique o seu email - IoT Manager"
-      : "Código de verificação - IoT Manager";
+      ? "Verifique o seu email - CtrlX"
+      : "Código de verificação - CtrlX";
 
   const actionText =
     type === "register"
@@ -87,7 +87,7 @@ export function sendVerificationCodeEmail(
       <div style="display: inline-block; width: 48px; height: 48px; background: linear-gradient(135deg, #06b6d4, #2563eb); border-radius: 12px; margin-bottom: 16px;">
         <span style="font-size: 24px; line-height: 48px; color: white;">⚡</span>
       </div>
-      <h1 style="color: #18181b; font-size: 24px; margin: 0;">IoT Manager</h1>
+      <h1 style="color: #18181b; font-size: 24px; margin: 0;">CtrlX</h1>
     </div>
     
     <p style="color: #52525b; font-size: 16px; line-height: 1.5; margin-bottom: 24px; text-align: center;">
@@ -105,14 +105,14 @@ export function sendVerificationCodeEmail(
   </div>
   
   <p style="text-align: center; color: #a1a1aa; font-size: 12px; margin-top: 24px;">
-    © ${new Date().getFullYear()} IoT Manager. Todos os direitos reservados.
+    © ${new Date().getFullYear()} CtrlX. Todos os direitos reservados.
   </p>
 </body>
 </html>
   `.trim();
 
   const text = `
-IoT Manager - Código de Verificação
+CtrlX - Código de Verificação
 
 Use o código abaixo ${actionText}:
 

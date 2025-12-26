@@ -101,14 +101,14 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
-            <Lightbulb className="w-4 h-4 text-primary-foreground" />
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600">
+            <Lightbulb className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-sidebar-foreground">
-              IoT Manager
+            <h2 className="text-base font-semibold bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent">
+              CtrlX
             </h2>
-            <p className="text-xs text-muted-foreground">Device Control</p>
+            <p className="text-xs text-muted-foreground">IoT Manager</p>
           </div>
         </div>
       </SidebarHeader>
