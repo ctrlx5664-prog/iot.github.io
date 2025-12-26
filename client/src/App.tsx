@@ -24,6 +24,7 @@ import Register from "@/pages/register";
 import HomeAssistant from "@/pages/home-assistant";
 import Organizations from "@/pages/organizations";
 import AcceptInvite from "@/pages/invite";
+import Profile from "@/pages/profile";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -44,6 +45,8 @@ function Routes() {
       <Route path="/ha" component={HomeAssistant} />
       <Route path="/organizations" component={Organizations} />
       <Route path="/invite/:code" component={AcceptInvite} />
+      <Route path="/profile" component={Profile} />
+      <Route path="/settings" component={Profile} />
       <Route path="*" component={NotFound} />
     </Switch>
   );
@@ -107,11 +110,18 @@ export default function App() {
             </div>
           </header>
           <main className="flex-1 overflow-y-auto">
-            <div className="max-w-7xl mx-auto px-6 py-6">
+            {/* Home Assistant needs full width, no padding */}
+            {location === "/ha" ? (
               <WouterRouter hook={routerHook}>
                 <Routes />
               </WouterRouter>
-            </div>
+            ) : (
+              <div className="max-w-7xl mx-auto px-6 py-6">
+                <WouterRouter hook={routerHook}>
+                  <Routes />
+                </WouterRouter>
+              </div>
+            )}
           </main>
         </div>
       </div>

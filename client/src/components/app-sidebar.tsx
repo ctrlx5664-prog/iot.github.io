@@ -1,4 +1,4 @@
-import { Building2, Lightbulb, Monitor, Home, Plus, Users, LayoutDashboard, Settings } from "lucide-react";
+import { Building2, Lightbulb, Home, Plus, Users, LayoutDashboard, Settings, LogOut, User, ChevronUp } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -14,16 +14,24 @@ import {
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Company, Location, Light, Tv } from "@shared/schema";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import { getToken, apiUrl } from "@/lib/auth";
+import { getToken, apiUrl, clearToken } from "@/lib/auth";
 
 interface UserInfo {
   id: string;
@@ -33,7 +41,8 @@ interface UserInfo {
 }
 
 export function AppSidebar() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const queryClient = useQueryClient();
 
   // Get current user info
   const { data: userData } = useQuery<{ user: UserInfo }>({
@@ -49,7 +58,18 @@ export function AppSidebar() {
     },
   });
 
-  const hasOrganizations = userData?.user?.hasOrganizations ?? false;
+  const user = userData?.user;
+  const hasOrganizations = user?.hasOrganizations ?? false;
+
+  const handleLogout = () => {
+    clearToken();
+    queryClient.clear();
+    navigate("/login");
+  };
+
+  const getInitials = (username: string) => {
+    return username.slice(0, 2).toUpperCase();
+  };
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -173,8 +193,9 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="text-xs text-muted-foreground">
+      <SidebarFooter className="border-t border-sidebar-border">
+        {/* Device count */}
+        <div className="px-4 py-2 text-xs text-muted-foreground">
           <div className="flex items-center justify-between">
             <span>Total Devices</span>
             <Badge variant="secondary" className="text-xs">
@@ -182,6 +203,50 @@ export function AppSidebar() {
             </Badge>
           </div>
         </div>
+        
+        {/* User menu */}
+        {user && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-3 w-full p-3 hover:bg-sidebar-accent rounded-lg transition-colors">
+                <Avatar className="h-8 w-8">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                    {getInitials(user.username)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 text-left min-w-0">
+                  <p className="text-sm font-medium truncate">{user.username}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                </div>
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56" side="top">
+              <div className="px-2 py-1.5">
+                <p className="text-sm font-medium">{user.username}</p>
+                <p className="text-xs text-muted-foreground">{user.email}</p>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="cursor-pointer">
+                  <User className="w-4 h-4 mr-2" />
+                  Perfil
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings" className="cursor-pointer">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Definições
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="text-red-600 cursor-pointer">
+                <LogOut className="w-4 h-4 mr-2" />
+                Terminar Sessão
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </SidebarFooter>
     </Sidebar>
   );

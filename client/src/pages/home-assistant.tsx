@@ -14,8 +14,10 @@ export default function HomeAssistant() {
 
   // Host-side cropping (robust): hide HA chrome even if it's inside shadow DOM.
   // Adjust if your HA theme/layout changes.
-  const HA_LEFT_CHROME_PX = 290; // sidebar width (smaller = shift dashboard right)
-  const HA_TOP_CHROME_PX = 56; // header/top bar height
+  // NOTE: Kiosk CSS in server/routes.ts should hide sidebar, but if it doesn't work
+  // you can use these values to crop the sidebar and header from view.
+  const HA_LEFT_CHROME_PX = 0; // Set to 0 if kiosk mode works, or ~256 for sidebar
+  const HA_TOP_CHROME_PX = 0; // Set to 0 if kiosk mode works, or ~56 for header
 
   // Build the dashboard URL with dashboard and view parameters
   // This goes through our proxy which injects authentication
@@ -60,20 +62,16 @@ export default function HomeAssistant() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      <div className="p-6 pb-4 border-b">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">Dashboard de Controlo</h1>
-            <p className="text-sm text-muted-foreground">
-              Monitorização e controlo em tempo real
-            </p>
-          </div>
+    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Minimal header - can be hidden if you prefer full immersion */}
+      <div className="px-4 py-2 border-b bg-background/95 backdrop-blur flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold">Dashboard de Controlo</h1>
         </div>
       </div>
 
       {error && (
-        <div className="m-6 p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+        <div className="mx-4 my-2 p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
           {error}
         </div>
       )}
@@ -156,7 +154,7 @@ export default function HomeAssistant() {
         <iframe
           ref={iframeRef}
           src={dashboardUrl}
-          className="w-full h-full border-0"
+          className="border-0"
           title="Dashboard de Controlo"
           onError={() => {
             setError("Falha ao carregar o dashboard");
@@ -165,9 +163,19 @@ export default function HomeAssistant() {
           onLoad={handleIframeLoad}
           sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
           style={{
-            width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
-            height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
-            transform: `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`,
+            // If cropping is enabled, expand the iframe and translate to hide chrome
+            width:
+              HA_LEFT_CHROME_PX > 0
+                ? `calc(100% + ${HA_LEFT_CHROME_PX}px)`
+                : "100%",
+            height:
+              HA_TOP_CHROME_PX > 0
+                ? `calc(100% + ${HA_TOP_CHROME_PX}px)`
+                : "100%",
+            transform:
+              HA_LEFT_CHROME_PX > 0 || HA_TOP_CHROME_PX > 0
+                ? `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`
+                : "none",
             opacity: isLoading ? 0 : 1,
             transition: "opacity 0.3s ease-in-out",
           }}

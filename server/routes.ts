@@ -442,6 +442,91 @@ export async function registerRoutes(
     });
   });
 
+  // Update profile
+  app.patch("/api/auth/profile", async (req, res) => {
+    const token = getBearerToken(req);
+    if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const payload = verifyJwt(token);
+    if (!payload) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    
+    const db = await getDb();
+    const user = await findUser(payload.sub);
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+    
+    const { username, email } = req.body || {};
+    
+    // Validate
+    if (username && username !== user.username) {
+      const existing = await findUser(username);
+      if (existing) {
+        return res.status(409).json({ error: "Nome de utilizador já existe" });
+      }
+    }
+    
+    if (email && email !== user.email) {
+      const [existingEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      if (existingEmail) {
+        return res.status(409).json({ error: "Email já registado" });
+      }
+    }
+    
+    // Update
+    const updates: any = {};
+    if (username) updates.username = username;
+    if (email) updates.email = email;
+    
+    if (Object.keys(updates).length > 0) {
+      await db.update(users).set(updates).where(eq(users.id, user.id));
+    }
+    
+    res.json({ success: true });
+  });
+
+  // Change password
+  app.post("/api/auth/change-password", async (req, res) => {
+    const token = getBearerToken(req);
+    if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const payload = verifyJwt(token);
+    if (!payload) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    
+    const db = await getDb();
+    const user = await findUser(payload.sub);
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+    
+    const { currentPassword, newPassword } = req.body || {};
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Palavra-passe atual e nova são obrigatórias" });
+    }
+    
+    // Verify current password
+    if (!verifyPassword(currentPassword, user.passwordHash)) {
+      return res.status(401).json({ error: "Palavra-passe atual incorreta" });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "A nova palavra-passe deve ter pelo menos 6 caracteres" });
+    }
+    
+    // Update password
+    const newHash = hashPassword(newPassword);
+    await db.update(users).set({ passwordHash: newHash }).where(eq(users.id, user.id));
+    
+    res.json({ success: true });
+  });
+
   // Protect all other /api routes
   app.use("/api", (req: any, res: any, next: any) => {
     // Allow auth routes without authentication
