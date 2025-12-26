@@ -26,5 +26,6 @@ declare module "lucide-react" {
   export const SkipForward: Icon;
   export const SkipBack: Icon;
   export const Tv: Icon;
+  export const Loader2: Icon;
 }
 
