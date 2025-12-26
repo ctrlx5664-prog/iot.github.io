@@ -38,6 +38,7 @@ export async function registerRoutes(
   const jwtSecret = process.env.JWT_SECRET ?? "please-change-me";
   const defaultAuthUsername = process.env.AUTH_USERNAME ?? "admin";
   const defaultAuthPassword = process.env.AUTH_PASSWORD ?? "changeme";
+  const defaultAuthEmail = process.env.AUTH_EMAIL ?? "admin@localhost";
 
   function base64url(input: any) {
     return input
@@ -111,7 +112,12 @@ export async function registerRoutes(
     const existing = await db.select().from(users).where(eq(users.username, defaultAuthUsername)).limit(1);
     if (existing.length > 0) return;
     const passwordHash = hashPassword(defaultAuthPassword);
-    await db.insert(users).values({ username: defaultAuthUsername, passwordHash });
+    await db.insert(users).values({ 
+      username: defaultAuthUsername, 
+      email: defaultAuthEmail,
+      passwordHash,
+      emailVerified: true // Default admin is pre-verified
+    });
   }
 
   await ensureDefaultUser();
