@@ -1484,7 +1484,14 @@ app-drawer-layout {
               // it shows the login flow even if we add Authorization headers at the network layer.
               (function seedHaTokens() {
                 const accessToken = "${haToken}";
-                const hassUrl = "${haBaseUrl}";
+                // IMPORTANT:
+                // We are serving HA's frontend from *this* origin (the proxy), so HA must treat
+                // the proxy origin as the "hassUrl" base for API/auth calls. If we seed the real
+                // HA origin here, the frontend will try to auth against HA directly (CORS / iframe),
+                // and often falls back to the login screen.
+                //
+                // We still rewrite WebSocket connections to the real HA origin elsewhere.
+                const hassUrl = window.location.origin;
                 const now = Date.now();
 
                 // Long-lived tokens do not have refresh tokens; HA frontend still expects the field.
