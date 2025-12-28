@@ -61,7 +61,8 @@ export default function Register() {
         setMaskedEmail(data.email);
       } else if (data.token) {
         setToken(data.token);
-        navigate("/");
+        // Force page reload to re-initialize auth state
+        window.location.href = "/";
       }
     } catch (err: any) {
       clearToken();
@@ -89,7 +90,8 @@ export default function Register() {
 
       if (data.token) {
         setToken(data.token);
-        navigate("/");
+        // Force page reload to re-initialize auth state
+        window.location.href = "/";
       }
     } catch (err: any) {
       setError(err?.message || "Verificação falhou");
