@@ -129,8 +129,8 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/"}>
-                  <Link href="/" data-testid="link-dashboard">
+                <SidebarMenuButton asChild isActive={location === "/dashboard"}>
+                  <Link href="/dashboard" data-testid="link-dashboard">
                     <Home className="w-4 h-4" />
                     <span>Dashboard</span>
                   </Link>

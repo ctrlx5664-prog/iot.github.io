@@ -1,9 +1,4 @@
-import {
-  Switch,
-  Route,
-  Link,
-  Router as WouterRouter,
-} from "wouter";
+import { Switch, Route, Link, Router as WouterRouter } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -37,7 +32,7 @@ function AuthenticatedRoutes() {
 
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/companies" component={Companies} />
       <Route path="/location/:id" component={LocationDetail} />
       <Route path="/videos" component={Videos} />
@@ -45,6 +40,13 @@ function AuthenticatedRoutes() {
       <Route path="/organizations" component={Organizations} />
       <Route path="/profile" component={Profile} />
       <Route path="/settings" component={Profile} />
+      {/* Redirect root to dashboard */}
+      <Route path="/">
+        {() => {
+          window.location.replace("/dashboard");
+          return null;
+        }}
+      </Route>
       <Route path="*" component={NotFound} />
     </Switch>
   );
@@ -79,7 +81,11 @@ function AppContent() {
   );
 
   // Validate token by fetching user info
-  const { data: userData, isLoading, isError } = useQuery({
+  const {
+    data: userData,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
       const currentToken = getToken();

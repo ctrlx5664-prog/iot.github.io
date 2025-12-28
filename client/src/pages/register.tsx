@@ -62,7 +62,7 @@ export default function Register() {
       } else if (data.token) {
         setToken(data.token);
         // Force page reload to re-initialize auth state
-        window.location.href = "/";
+        window.location.href = "/dashboard";
       }
     } catch (err: any) {
       clearToken();
@@ -91,7 +91,7 @@ export default function Register() {
       if (data.token) {
         setToken(data.token);
         // Force page reload to re-initialize auth state
-        window.location.href = "/";
+        window.location.href = "/dashboard";
       }
     } catch (err: any) {
       setError(err?.message || "Verificação falhou");
