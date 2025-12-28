@@ -117,9 +117,6 @@ export default function HomeAssistant() {
                 <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
                   CtrlX
                 </h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  IoT Manager
-                </p>
               </div>
 
               {/* Loading spinner and message */}

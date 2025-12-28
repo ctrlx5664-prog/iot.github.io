@@ -3,7 +3,6 @@ import {
   Route,
   Link,
   Router as WouterRouter,
-  useLocation,
 } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -28,8 +27,9 @@ import Profile from "@/pages/profile";
 import Landing from "@/pages/landing";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useMemo, useState, type CSSProperties } from "react";
-import { getToken } from "@/lib/auth";
+import { useMemo, useState, useEffect, type CSSProperties } from "react";
+import { getToken, clearToken, apiUrl } from "@/lib/auth";
+import { useQuery } from "@tanstack/react-query";
 
 function AuthenticatedRoutes() {
   // Initialize WebSocket connection
@@ -62,8 +62,7 @@ function PublicRoutes() {
   );
 }
 
-export default function App() {
-  const [location] = useLocation();
+function AppContent() {
   const token = getToken();
 
   const style: CSSProperties = {
@@ -79,21 +78,52 @@ export default function App() {
     [routerMode]
   );
 
-  // If not authenticated, show public routes (landing, login, register)
-  if (!token) {
+  // Validate token by fetching user info
+  const { data: userData, isLoading, isError } = useQuery({
+    queryKey: ["/api/auth/me"],
+    queryFn: async () => {
+      const currentToken = getToken();
+      if (!currentToken) return null;
+      const res = await fetch(apiUrl("/api/auth/me"), {
+        headers: { Authorization: `Bearer ${currentToken}` },
+      });
+      if (!res.ok) {
+        clearToken();
+        return null;
+      }
+      return res.json();
+    },
+    enabled: !!token,
+    retry: false,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Clear token if validation failed
+  useEffect(() => {
+    if (isError) {
+      clearToken();
+    }
+  }, [isError]);
+
+  // Show loading state while validating token
+  if (token && isLoading) {
     return (
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider defaultTheme="dark">
-          <TooltipProvider>
-            <div className="min-h-screen bg-background">
-              <WouterRouter hook={routerHook}>
-                <PublicRoutes />
-              </WouterRouter>
-            </div>
-            <Toaster />
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  // If not authenticated or token is invalid, show public routes
+  const isAuthenticated = token && userData && !isError;
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background">
+        <WouterRouter hook={routerHook}>
+          <PublicRoutes />
+        </WouterRouter>
+      </div>
     );
   }
 
@@ -129,11 +159,15 @@ export default function App() {
     </SidebarProvider>
   );
 
+  return shell;
+}
+
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light">
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
-          {shell}
+          <AppContent />
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>

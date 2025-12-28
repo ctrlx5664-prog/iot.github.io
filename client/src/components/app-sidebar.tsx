@@ -1,4 +1,15 @@
-import { Building2, Lightbulb, Home, Plus, Users, LayoutDashboard, Settings, LogOut, User, ChevronUp } from "lucide-react";
+import {
+  Building2,
+  Lightbulb,
+  Home,
+  Plus,
+  Users,
+  LayoutDashboard,
+  Settings,
+  LogOut,
+  User,
+  ChevronUp,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -108,7 +119,6 @@ export function AppSidebar() {
             <h2 className="text-base font-semibold bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent">
               CtrlX
             </h2>
-            <p className="text-xs text-muted-foreground">IoT Manager</p>
           </div>
         </div>
       </SidebarHeader>
@@ -148,10 +158,7 @@ export function AppSidebar() {
               {/* Home Assistant only shows when user has organizations */}
               {hasOrganizations && (
                 <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === "/ha"}
-                  >
+                  <SidebarMenuButton asChild isActive={location === "/ha"}>
                     <Link href="/ha" data-testid="link-home-assistant">
                       <LayoutDashboard className="w-4 h-4" />
                       <span>Dashboard de Controlo</span>
@@ -203,7 +210,7 @@ export function AppSidebar() {
             </Badge>
           </div>
         </div>
-        
+
         {/* User menu */}
         {user && (
           <DropdownMenu>
@@ -215,8 +222,12 @@ export function AppSidebar() {
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 text-left min-w-0">
-                  <p className="text-sm font-medium truncate">{user.username}</p>
-                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  <p className="text-sm font-medium truncate">
+                    {user.username}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {user.email}
+                  </p>
                 </div>
                 <ChevronUp className="w-4 h-4 text-muted-foreground" />
               </button>
@@ -240,7 +251,10 @@ export function AppSidebar() {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="text-red-600 cursor-pointer">
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="text-red-600 cursor-pointer"
+              >
                 <LogOut className="w-4 h-4 mr-2" />
                 Terminar Sessão
               </DropdownMenuItem>
