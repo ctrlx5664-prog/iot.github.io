@@ -25,7 +25,16 @@ declare module "react" {
     render: (props: P, ref: Ref<T>) => ReactNode
   ): any;
   
-  const React: any;
+  const React: {
+    useState: typeof useState;
+    useEffect: typeof useEffect;
+    useMemo: typeof useMemo;
+    useCallback: typeof useCallback;
+    useContext: typeof useContext;
+    useRef: typeof useRef;
+    createContext: typeof createContext;
+    forwardRef: typeof forwardRef;
+  };
   export default React;
   export = React;
 }

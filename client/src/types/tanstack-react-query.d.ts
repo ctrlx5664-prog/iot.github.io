@@ -4,9 +4,10 @@ declare module "@tanstack/react-query" {
   }
   export const QueryClientProvider: any;
   export type QueryFunction<T = any> = (context: { queryKey: any[] }) => Promise<T>;
-  export function useQuery<T = any>(options: { queryKey: any[]; queryFn?: any; enabled?: boolean }): {
+  export function useQuery<T = any>(options: { queryKey: any[]; queryFn?: any; enabled?: boolean; retry?: boolean | number; staleTime?: number }): {
     data: T | undefined;
     isLoading: boolean;
+    isError: boolean;
     error: any;
     refetch: () => void;
   };
@@ -20,6 +21,10 @@ declare module "@tanstack/react-query" {
     isPending: boolean;
     isLoading: boolean;
     error: any;
+  };
+  export function useQueryClient(): QueryClient & {
+    clear: () => void;
+    invalidateQueries: (options?: { queryKey?: any[] }) => Promise<void>;
   };
 }
 
