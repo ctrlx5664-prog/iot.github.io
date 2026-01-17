@@ -37,11 +37,13 @@ export default function LocationDetail() {
   const { toast } = useToast();
   const { language } = useTranslation();
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [isLightDialogOpen, setIsLightDialogOpen] = useState(false);
   const [isTvDialogOpen, setIsTvDialogOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [dashboardKey, setDashboardKey] = useState(0);
   const [isDashboardLoading, setIsDashboardLoading] = useState(true);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState(tr("A inicializar...", "Initializing..."));
 
   // Loading messages rotation
@@ -66,10 +68,16 @@ export default function LocationDetail() {
   }, [isDashboardLoading]);
 
   const handleDashboardLoad = () => {
+    // If already loaded once, don't show loading again
+    if (dashboardLoaded) {
+      setIsDashboardLoading(false);
+      return;
+    }
     setLoadingMessage(tr("A finalizar...", "Finalizing..."));
     // Wait for HA internal JS to finish loading
     setTimeout(() => {
       setIsDashboardLoading(false);
+      setDashboardLoaded(true);
     }, 3000);
   };
 
@@ -155,6 +163,7 @@ export default function LocationDetail() {
   };
 
   const refreshDashboard = () => {
+    setDashboardLoaded(false); // Force full reload
     setIsDashboardLoading(true);
     setLoadingMessage(tr("A inicializar...", "Initializing..."));
     setDashboardKey(prev => prev + 1);
@@ -168,10 +177,13 @@ export default function LocationDetail() {
     );
   }
 
-  // Dashboard URL - can be customized per location in the future
-  const dashboardUrl = apiUrl("/api/ha/dashboard");
+  // Dashboard URL - use the same parameters as home-assistant.tsx
+  const params = new URLSearchParams();
+  params.set("dashboard", "dashboard-conex");
+  params.set("view", "aa");
+  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${params.toString()}`;
   // Crop HA chrome (sidebar/top bar) to show only the control content
-  const HA_LEFT_CHROME_PX = 260;
+  const HA_LEFT_CHROME_PX = 285; // Match home-assistant.tsx
   const HA_TOP_CHROME_PX = 56;
 
   return (
@@ -201,7 +213,7 @@ export default function LocationDetail() {
         )}
       </div>
 
-      <Tabs defaultValue="dashboard" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="dashboard" className="gap-2">
             <LayoutDashboard className="w-4 h-4" />
@@ -219,8 +231,8 @@ export default function LocationDetail() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Dashboard de Controlo Tab */}
-        <TabsContent value="dashboard" className="space-y-4">
+        {/* Dashboard de Controlo Tab - forceMount to keep iframe alive */}
+        <TabsContent value="dashboard" forceMount className={activeTab === "dashboard" ? "space-y-4" : "hidden"}>
           <Card className={isFullscreen ? "fixed inset-0 z-50 rounded-none" : ""}>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>

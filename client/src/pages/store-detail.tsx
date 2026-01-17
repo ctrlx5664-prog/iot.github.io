@@ -286,11 +286,13 @@ export default function StoreDetail() {
   const { language } = useTranslation();
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
 
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [dashboardKey, setDashboardKey] = useState(0);
   const [timeRange, setTimeRange] = useState<"today" | "week" | "month">("today");
   const [logPage, setLogPage] = useState(1);
   const [isDashboardLoading, setIsDashboardLoading] = useState(true);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState(tr("A inicializar...", "Initializing..."));
 
   // Loading messages rotation
@@ -315,13 +317,20 @@ export default function StoreDetail() {
   }, [isDashboardLoading]);
 
   const handleDashboardLoad = () => {
+    // If already loaded once, don't show loading again
+    if (dashboardLoaded) {
+      setIsDashboardLoading(false);
+      return;
+    }
     setLoadingMessage(tr("A finalizar...", "Finalizing..."));
     setTimeout(() => {
       setIsDashboardLoading(false);
+      setDashboardLoaded(true);
     }, 3000);
   };
 
   const refreshDashboard = () => {
+    setDashboardLoaded(false); // Force full reload
     setIsDashboardLoading(true);
     setLoadingMessage(tr("A inicializar...", "Initializing..."));
     setDashboardKey((prev) => prev + 1);
@@ -390,9 +399,13 @@ export default function StoreDetail() {
     );
   }
 
-  // Dashboard URL & cropping (same as location-detail)
-  const dashboardUrl = apiUrl("/api/ha/dashboard");
-  const HA_LEFT_CHROME_PX = 260;
+  // Dashboard URL & cropping (same as home-assistant.tsx)
+  // Use the same dashboard/view parameters as the main control dashboard
+  const params = new URLSearchParams();
+  params.set("dashboard", "dashboard-conex");
+  params.set("view", "aa");
+  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${params.toString()}`;
+  const HA_LEFT_CHROME_PX = 285; // Match home-assistant.tsx
   const HA_TOP_CHROME_PX = 56;
 
   const formatTime = (iso: string) => {
@@ -445,7 +458,7 @@ export default function StoreDetail() {
         )}
       </div>
 
-      <Tabs defaultValue="dashboard" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="dashboard" className="gap-2">
             <LayoutDashboard className="w-4 h-4" />
@@ -469,9 +482,9 @@ export default function StoreDetail() {
         </TabsList>
 
         {/* ─────────────────────────────────────────────────────── */}
-        {/* Dashboard Tab */}
+        {/* Dashboard Tab - forceMount to keep iframe alive */}
         {/* ─────────────────────────────────────────────────────── */}
-        <TabsContent value="dashboard" className="space-y-4">
+        <TabsContent value="dashboard" forceMount className={activeTab === "dashboard" ? "space-y-4" : "hidden"}>
           <Card className={isFullscreen ? "fixed inset-0 z-50 rounded-none" : ""}>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
