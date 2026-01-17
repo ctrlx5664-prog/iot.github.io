@@ -46,6 +46,14 @@ export default function LocationDetail() {
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState(tr("A inicializar...", "Initializing..."));
 
+  // Reset dashboard loading state when location changes
+  useEffect(() => {
+    setIsDashboardLoading(true);
+    setDashboardLoaded(false);
+    setLoadingMessage(tr("A inicializar...", "Initializing..."));
+    setDashboardKey((prev) => prev + 1);
+  }, [locationId]);
+
   // Loading messages rotation
   useEffect(() => {
     if (!isDashboardLoading) return;

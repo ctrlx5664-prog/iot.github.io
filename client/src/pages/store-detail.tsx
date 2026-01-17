@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,10 +22,6 @@ import {
 } from "@/components/ui/table";
 import {
   Store,
-  LayoutDashboard,
-  Maximize2,
-  Minimize2,
-  RefreshCw,
   MapPin,
   Lightbulb,
   Monitor,
@@ -44,7 +40,6 @@ import {
   UserPlus,
   Download,
   Filter,
-  Loader2,
 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 import type { Company, Location, Light, Tv, Organization } from "@shared/schema";
@@ -286,55 +281,9 @@ export default function StoreDetail() {
   const { language } = useTranslation();
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
 
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [dashboardKey, setDashboardKey] = useState(0);
+  const [activeTab, setActiveTab] = useState("spaces");
   const [timeRange, setTimeRange] = useState<"today" | "week" | "month">("today");
   const [logPage, setLogPage] = useState(1);
-  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
-  const [dashboardLoaded, setDashboardLoaded] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState(tr("A inicializar...", "Initializing..."));
-
-  // Loading messages rotation
-  useEffect(() => {
-    if (!isDashboardLoading) return;
-
-    const messages = [
-      tr("A inicializar...", "Initializing..."),
-      tr("A conectar ao sistema...", "Connecting to the system..."),
-      tr("A carregar dashboard...", "Loading dashboard..."),
-      tr("A preparar interface...", "Preparing interface..."),
-      tr("Quase pronto...", "Almost ready..."),
-    ];
-
-    let index = 0;
-    const interval = setInterval(() => {
-      index = (index + 1) % messages.length;
-      setLoadingMessage(messages[index]);
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [isDashboardLoading]);
-
-  const handleDashboardLoad = () => {
-    // If already loaded once, don't show loading again
-    if (dashboardLoaded) {
-      setIsDashboardLoading(false);
-      return;
-    }
-    setLoadingMessage(tr("A finalizar...", "Finalizing..."));
-    setTimeout(() => {
-      setIsDashboardLoading(false);
-      setDashboardLoaded(true);
-    }, 3000);
-  };
-
-  const refreshDashboard = () => {
-    setDashboardLoaded(false); // Force full reload
-    setIsDashboardLoading(true);
-    setLoadingMessage(tr("A inicializar...", "Initializing..."));
-    setDashboardKey((prev) => prev + 1);
-  };
 
   const token = getToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -399,15 +348,6 @@ export default function StoreDetail() {
     );
   }
 
-  // Dashboard URL & cropping (same as home-assistant.tsx)
-  // Use the same dashboard/view parameters as the main control dashboard
-  const dashboardParams = new URLSearchParams();
-  dashboardParams.set("dashboard", "dashboard-conex");
-  dashboardParams.set("view", "aa");
-  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${dashboardParams.toString()}`;
-  const HA_LEFT_CHROME_PX = 285; // Match home-assistant.tsx
-  const HA_TOP_CHROME_PX = 56;
-
   const formatTime = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleTimeString(language === "pt" ? "pt-PT" : "en-GB", {
@@ -460,10 +400,6 @@ export default function StoreDetail() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex-wrap">
-          <TabsTrigger value="dashboard" className="gap-2">
-            <LayoutDashboard className="w-4 h-4" />
-            {tr("Dashboard", "Dashboard")}
-          </TabsTrigger>
           <TabsTrigger value="spaces" className="gap-2">
             <MapPin className="w-4 h-4" />
             {tr("Espaços", "Spaces")}
@@ -480,112 +416,6 @@ export default function StoreDetail() {
             {tr("Logs", "Logs")}
           </TabsTrigger>
         </TabsList>
-
-        {/* ─────────────────────────────────────────────────────── */}
-        {/* Dashboard Tab - forceMount to keep iframe alive */}
-        {/* ─────────────────────────────────────────────────────── */}
-        <TabsContent value="dashboard" forceMount className={activeTab === "dashboard" ? "space-y-4" : "hidden"}>
-          <Card className={isFullscreen ? "fixed inset-0 z-50 rounded-none" : ""}>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-lg">
-                  {tr("Dashboard de Controlo", "Control Dashboard")}
-                </CardTitle>
-                <CardDescription>
-                  {tr("Monitorização e controlo em tempo real", "Real-time monitoring and control")}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={refreshDashboard}>
-                  <RefreshCw className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setIsFullscreen(!isFullscreen)}
-                >
-                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div
-                className={`relative overflow-hidden bg-background ${
-                  isFullscreen ? "h-[calc(100vh-80px)]" : "h-[600px]"
-                }`}
-              >
-                {/* Custom Loading Overlay - hides HA branding during load */}
-                {isDashboardLoading && (
-                  <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background">
-                    <div className="flex flex-col items-center gap-6">
-                      {/* Brand logo */}
-                      <div className="relative">
-                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                          <Zap className="w-10 h-10 text-white" />
-                        </div>
-                        <div className="absolute -inset-2 rounded-3xl border-2 border-cyan-500/30 animate-ping" />
-                      </div>
-
-                      <div className="text-center">
-                        <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                          CtrlX
-                        </h2>
-                      </div>
-
-                      <div className="flex items-center gap-3 text-muted-foreground">
-                        <Loader2 className="w-5 h-5 animate-spin text-cyan-500" />
-                        <span className="text-sm">{loadingMessage}</span>
-                      </div>
-
-                      <div className="w-48 h-1 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
-                          style={{
-                            animation: "loading-progress 2s ease-in-out infinite",
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="absolute inset-0 -z-10 opacity-5">
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
-                          backgroundSize: "40px 40px",
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <iframe
-                  key={dashboardKey}
-                  src={dashboardUrl}
-                  className="w-full h-full border-0"
-                  title="Dashboard de Controlo"
-                  onLoad={handleDashboardLoad}
-                  sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
-                  style={{
-                    width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
-                    height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
-                    transform: `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`,
-                    opacity: isDashboardLoading ? 0 : 1,
-                    transition: "opacity 0.3s ease-in-out",
-                  }}
-                />
-              </div>
-
-              <style>{`
-                @keyframes loading-progress {
-                  0% { width: 20%; margin-left: 0; }
-                  50% { width: 60%; margin-left: 20%; }
-                  100% { width: 20%; margin-left: 80%; }
-                }
-              `}</style>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         {/* ─────────────────────────────────────────────────────── */}
         {/* Spaces Tab */}
