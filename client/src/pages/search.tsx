@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +16,9 @@ import {
   Monitor,
   ChevronRight,
   Filter,
+  X,
+  Power,
+  Zap,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { Company, Location, Light, Tv } from "@shared/schema";
@@ -34,7 +39,10 @@ type SearchResult = {
   name: string;
   description?: string;
   parentName?: string;
+  parentId?: string;
   status?: string;
+  isOnline?: boolean;
+  isOn?: boolean;
   href: string;
 };
 
@@ -68,6 +76,10 @@ export default function Search() {
     return locations.find((l) => l.id === locationId)?.name || "";
   };
 
+  const getLocationCompanyId = (locationId: string) => {
+    return locations.find((l) => l.id === locationId)?.companyId || "";
+  };
+
   const getLocationCompanyName = (locationId: string) => {
     const location = locations.find((l) => l.id === locationId);
     if (!location) return "";
@@ -84,7 +96,7 @@ export default function Search() {
         id: company.id,
         name: company.name,
         description: company.description || undefined,
-        href: `/stores`,
+        href: `/store/${company.id}`,
       });
     });
 
@@ -96,6 +108,7 @@ export default function Search() {
         name: location.name,
         description: location.description || undefined,
         parentName: getCompanyName(location.companyId),
+        parentId: location.companyId,
         href: `/location/${location.id}`,
       });
     });
@@ -106,8 +119,11 @@ export default function Search() {
         type: "light",
         id: light.id,
         name: light.name,
-        parentName: `${getLocationCompanyName(light.locationId)} > ${getLocationName(light.locationId)}`,
-        status: light.isOn ? tr("Ligada", "On") : tr("Desligada", "Off"),
+        parentName: `${getLocationCompanyName(light.locationId)} › ${getLocationName(light.locationId)}`,
+        parentId: getLocationCompanyId(light.locationId),
+        status: light.status,
+        isOnline: light.status === "online",
+        isOn: light.isOn,
         href: `/location/${light.locationId}`,
       });
     });
@@ -118,8 +134,10 @@ export default function Search() {
         type: "tv",
         id: tv.id,
         name: tv.name,
-        parentName: `${getLocationCompanyName(tv.locationId)} > ${getLocationName(tv.locationId)}`,
-        status: tv.status === "online" ? tr("Online", "Online") : tr("Offline", "Offline"),
+        parentName: `${getLocationCompanyName(tv.locationId)} › ${getLocationName(tv.locationId)}`,
+        parentId: getLocationCompanyId(tv.locationId),
+        status: tv.status,
+        isOnline: tv.status === "online",
         href: `/location/${tv.locationId}`,
       });
     });
@@ -152,6 +170,22 @@ export default function Search() {
     });
   }, [allResults, searchQuery, filterType]);
 
+  // Group results by type for better visualization
+  const groupedResults = useMemo(() => {
+    const groups: { [key: string]: SearchResult[] } = {
+      store: [],
+      space: [],
+      light: [],
+      tv: [],
+    };
+
+    filteredResults.forEach((result) => {
+      groups[result.type].push(result);
+    });
+
+    return groups;
+  }, [filteredResults]);
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "store":
@@ -170,13 +204,28 @@ export default function Search() {
   const getTypeLabel = (type: string) => {
     switch (type) {
       case "store":
-        return "Loja";
+        return tr("Loja", "Store");
       case "space":
-        return "Espaço";
+        return tr("Espaço", "Space");
       case "light":
-        return "Luz";
+        return tr("Luz", "Light");
       case "tv":
         return "TV";
+      default:
+        return type;
+    }
+  };
+
+  const getTypePluralLabel = (type: string) => {
+    switch (type) {
+      case "store":
+        return tr("Lojas", "Stores");
+      case "space":
+        return tr("Espaços", "Spaces");
+      case "light":
+        return tr("Luzes", "Lights");
+      case "tv":
+        return tr("Televisões", "TVs");
       default:
         return type;
     }
@@ -202,6 +251,18 @@ export default function Search() {
     spaces: locations.length,
     lights: lights.length,
     tvs: tvs.length,
+    onlineLights: lights.filter((l) => l.status === "online").length,
+    activeLights: lights.filter((l) => l.isOn).length,
+    onlineTvs: tvs.filter((t) => t.status === "online").length,
+  };
+
+  const hasResults = filteredResults.length > 0;
+  const isSearching = searchQuery.trim() !== "" || filterType !== "all";
+
+  // Keyboard shortcut hint
+  const clearSearch = () => {
+    setSearchQuery("");
+    setFilterType("all");
   };
 
   return (
@@ -210,7 +271,10 @@ export default function Search() {
       <div>
         <h1 className="text-2xl font-semibold">{tr("Pesquisar", "Search")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Encontre lojas, espaços e dispositivos rapidamente
+          {tr(
+            "Encontre lojas, espaços e dispositivos rapidamente",
+            "Find stores, spaces, and devices quickly"
+          )}
         </p>
       </div>
 
@@ -219,12 +283,23 @@ export default function Search() {
         <div className="relative flex-1">
           <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <Input
-            placeholder={tr("Pesquisar por nome, descrição ou localização...", "Search by name, description, or location...")}
+            placeholder={tr(
+              "Pesquisar por nome, descrição ou localização...",
+              "Search by name, description, or location..."
+            )}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-11 h-12 text-base"
+            className="pl-11 pr-10 h-12 text-base"
             autoFocus
           />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
         <Select value={filterType} onValueChange={setFilterType}>
           <SelectTrigger className="w-full sm:w-[180px] h-12">
@@ -242,10 +317,10 @@ export default function Search() {
       </div>
 
       {/* Quick Stats */}
-      {!searchQuery && filterType === "all" && (
+      {!isSearching && (
         <div className="grid gap-4 md:grid-cols-4">
           <Card
-            className="cursor-pointer hover:border-primary/50 transition-colors"
+            className="cursor-pointer hover:border-primary/50 transition-colors group"
             onClick={() => setFilterType("store")}
           >
             <CardContent className="pt-6">
@@ -254,12 +329,12 @@ export default function Search() {
                   <p className="text-sm text-muted-foreground">{tr("Lojas", "Stores")}</p>
                   <p className="text-2xl font-bold">{stats.stores}</p>
                 </div>
-                <Store className="w-8 h-8 text-primary/20" />
+                <Store className="w-8 h-8 text-primary/20 group-hover:text-primary/40 transition-colors" />
               </div>
             </CardContent>
           </Card>
           <Card
-            className="cursor-pointer hover:border-blue-500/50 transition-colors"
+            className="cursor-pointer hover:border-blue-500/50 transition-colors group"
             onClick={() => setFilterType("space")}
           >
             <CardContent className="pt-6">
@@ -268,12 +343,12 @@ export default function Search() {
                   <p className="text-sm text-muted-foreground">{tr("Espaços", "Spaces")}</p>
                   <p className="text-2xl font-bold">{stats.spaces}</p>
                 </div>
-                <MapPin className="w-8 h-8 text-blue-500/20" />
+                <MapPin className="w-8 h-8 text-blue-500/20 group-hover:text-blue-500/40 transition-colors" />
               </div>
             </CardContent>
           </Card>
           <Card
-            className="cursor-pointer hover:border-yellow-500/50 transition-colors"
+            className="cursor-pointer hover:border-yellow-500/50 transition-colors group"
             onClick={() => setFilterType("light")}
           >
             <CardContent className="pt-6">
@@ -281,13 +356,16 @@ export default function Search() {
                 <div>
                   <p className="text-sm text-muted-foreground">{tr("Luzes", "Lights")}</p>
                   <p className="text-2xl font-bold">{stats.lights}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.activeLights} {tr("ligadas", "on")}
+                  </p>
                 </div>
-                <Lightbulb className="w-8 h-8 text-yellow-500/20" />
+                <Lightbulb className="w-8 h-8 text-yellow-500/20 group-hover:text-yellow-500/40 transition-colors" />
               </div>
             </CardContent>
           </Card>
           <Card
-            className="cursor-pointer hover:border-purple-500/50 transition-colors"
+            className="cursor-pointer hover:border-purple-500/50 transition-colors group"
             onClick={() => setFilterType("tv")}
           >
             <CardContent className="pt-6">
@@ -295,112 +373,150 @@ export default function Search() {
                 <div>
                   <p className="text-sm text-muted-foreground">{tr("Televisões", "TVs")}</p>
                   <p className="text-2xl font-bold">{stats.tvs}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.onlineTvs} online
+                  </p>
                 </div>
-                <Monitor className="w-8 h-8 text-purple-500/20" />
+                <Monitor className="w-8 h-8 text-purple-500/20 group-hover:text-purple-500/40 transition-colors" />
               </div>
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Results */}
-      {(searchQuery || filterType !== "all") && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              {filteredResults.length} resultado
-              {filteredResults.length !== 1 ? "s" : ""} encontrado
-              {filteredResults.length !== 1 ? "s" : ""}
-            </p>
-            {filterType !== "all" && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setFilterType("all")}
-              >
-                Limpar filtro
-              </Button>
+      {/* Results Header */}
+      {isSearching && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {filteredResults.length}{" "}
+            {tr(
+              filteredResults.length !== 1 ? "resultados encontrados" : "resultado encontrado",
+              filteredResults.length !== 1 ? "results found" : "result found"
             )}
-          </div>
-
-          {filteredResults.length === 0 ? (
-            <Card>
-              <CardContent className="py-16 text-center">
-                <SearchIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium mb-2">
-                  {tr("Nenhum resultado encontrado", "No results found")}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  Tente uma pesquisa diferente ou altere os filtros
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              {filteredResults.map((result) => (
-                <Link key={`${result.type}-${result.id}`} href={result.href}>
-                  <Card className="cursor-pointer hover:shadow-md hover:border-primary/20 transition-all group">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-                          {getTypeIcon(result.type)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-medium truncate">
-                              {result.name}
-                            </h3>
-                            <Badge
-                              className={cn(
-                                "text-xs flex-shrink-0",
-                                getTypeBadgeClass(result.type)
-                              )}
-                            >
-                              {getTypeLabel(result.type)}
-                            </Badge>
-                            {result.status && (
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-xs flex-shrink-0",
-                                  result.status === "Online" ||
-                                    result.status === "Ligada"
-                                    ? "border-green-500 text-green-600"
-                                    : "border-muted-foreground text-muted-foreground"
-                                )}
-                              >
-                                {result.status}
-                              </Badge>
-                            )}
-                          </div>
-                          {(result.parentName || result.description) && (
-                            <p className="text-sm text-muted-foreground truncate mt-0.5">
-                              {result.parentName || result.description}
-                            </p>
-                          )}
-                        </div>
-                        <ChevronRight className="w-5 h-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          )}
+          </p>
+          <Button variant="ghost" size="sm" onClick={clearSearch} className="gap-2">
+            <X className="w-4 h-4" />
+            {tr("Limpar", "Clear")}
+          </Button>
         </div>
       )}
 
+      {/* Grouped Results */}
+      {isSearching && hasResults && (
+        <div className="space-y-6">
+          {(["store", "space", "light", "tv"] as const).map((type) => {
+            const results = groupedResults[type];
+            if (results.length === 0) return null;
+
+            return (
+              <Card key={type}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    {getTypeIcon(type)}
+                    {getTypePluralLabel(type)}
+                    <Badge variant="secondary" className="ml-auto">
+                      {results.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="space-y-1">
+                    {results.slice(0, 10).map((result) => (
+                      <Link key={`${result.type}-${result.id}`} href={result.href}>
+                        <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group">
+                          <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
+                            {getTypeIcon(result.type)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm truncate">
+                                {result.name}
+                              </span>
+                              {result.type === "light" && (
+                                <div className="flex items-center gap-1">
+                                  {result.isOn ? (
+                                    <Power className="w-3 h-3 text-green-500" />
+                                  ) : (
+                                    <Power className="w-3 h-3 text-muted-foreground" />
+                                  )}
+                                  {!result.isOnline && (
+                                    <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                                      offline
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                              {result.type === "tv" && !result.isOnline && (
+                                <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                                  offline
+                                </Badge>
+                              )}
+                            </div>
+                            {result.parentName && (
+                              <p className="text-xs text-muted-foreground truncate">
+                                {result.parentName}
+                              </p>
+                            )}
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                        </div>
+                      </Link>
+                    ))}
+                    {results.length > 10 && (
+                      <p className="text-xs text-muted-foreground text-center pt-2">
+                        +{results.length - 10} {tr("mais", "more")}
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* No Results */}
+      {isSearching && !hasResults && (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <SearchIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium mb-2">
+              {tr("Nenhum resultado encontrado", "No results found")}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {tr(
+                "Tente uma pesquisa diferente ou altere os filtros",
+                "Try a different search or change the filters"
+              )}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Empty State */}
-      {!searchQuery && filterType === "all" && (
+      {!isSearching && (
         <Card className="border-dashed">
           <CardContent className="py-12 text-center">
             <SearchIcon className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-medium mb-2">Pesquise por qualquer coisa</h3>
+            <h3 className="text-lg font-medium mb-2">
+              {tr("Pesquise por qualquer coisa", "Search for anything")}
+            </h3>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              Digite o nome de uma loja, espaço ou dispositivo para encontrar
-              rapidamente o que procura. Ou clique nos cards acima para filtrar
-              por tipo.
+              {tr(
+                "Digite o nome de uma loja, espaço ou dispositivo para encontrar rapidamente o que procura. Ou clique nos cards acima para filtrar por tipo.",
+                "Type the name of a store, space, or device to quickly find what you're looking for. Or click the cards above to filter by type."
+              )}
             </p>
+            <div className="flex items-center justify-center gap-4 mt-6">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Zap className="w-4 h-4" />
+                {stats.activeLights} {tr("luzes ligadas", "lights on")}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Monitor className="w-4 h-4" />
+                {stats.onlineTvs} TVs online
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

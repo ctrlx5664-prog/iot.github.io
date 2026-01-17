@@ -561,6 +561,14 @@ export default function Stores() {
                       </form>
                     </DialogContent>
                   </Dialog>
+
+                  {/* View Store Button */}
+                  <Link href={`/store/${store.id}`}>
+                    <Button size="sm" className="w-full gap-2">
+                      <ChevronRight className="w-4 h-4" />
+                      {tr("Ver Loja", "View Store")}
+                    </Button>
+                  </Link>
                 </CardContent>
               </Card>
             );

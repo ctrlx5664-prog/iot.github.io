@@ -22,6 +22,8 @@ import {
   Zap,
   BarChart3,
   History,
+  Star,
+  AlertCircle,
 } from "lucide-react";
 import {
   Sidebar,
@@ -53,8 +55,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { getToken, apiUrl, clearToken } from "@/lib/auth";
+
+// Get favorites from localStorage
+function getFavorites(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem("favorites") || "[]");
+  } catch {
+    return [];
+  }
+}
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 
@@ -73,6 +84,15 @@ export function AppSidebar() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [storesOpen, setStoresOpen] = useState(true);
   const [ecoOpen, setEcoOpen] = useState(false);
+  const [favoritesOpen, setFavoritesOpen] = useState(true);
+  const [favorites, setFavorites] = useState<string[]>(getFavorites);
+
+  // Sync favorites from localStorage on storage event (cross-tab)
+  useEffect(() => {
+    const onStorage = () => setFavorites(getFavorites());
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   // Get current user info
   const { data: userData } = useQuery<{ user: UserInfo }>({
@@ -128,9 +148,37 @@ export function AppSidebar() {
   };
 
   const onlineLights = lights.filter((l) => l.status === "online").length;
+  const offlineLights = lights.filter((l) => l.status === "offline").length;
   const onlineTvs = tvs.filter((t) => t.status === "online").length;
+  const offlineTvs = tvs.filter((t) => t.status === "offline").length;
   const totalDevices = lights.length + tvs.length;
   const onlineDevices = onlineLights + onlineTvs;
+  const offlineDevices = offlineLights + offlineTvs;
+
+  // Get favorite items
+  const favoriteLocations = useMemo(
+    () => locations.filter((l) => favorites.includes(l.id)),
+    [locations, favorites]
+  );
+  const favoriteCompanies = useMemo(
+    () => companies.filter((c) => favorites.includes(c.id)),
+    [companies, favorites]
+  );
+  const hasFavorites = favoriteLocations.length > 0 || favoriteCompanies.length > 0;
+
+  // Calculate offline devices per store for badges
+  const getStoreOfflineCount = (companyId: string) => {
+    const companyLocationIds = locations
+      .filter((loc) => loc.companyId === companyId)
+      .map((loc) => loc.id);
+    const offL = lights.filter(
+      (l) => companyLocationIds.includes(l.locationId) && l.status === "offline"
+    ).length;
+    const offT = tvs.filter(
+      (t) => companyLocationIds.includes(t.locationId) && t.status === "offline"
+    ).length;
+    return offL + offT;
+  };
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -375,11 +423,89 @@ export function AppSidebar() {
           </Collapsible>
         </SidebarGroup>
 
+        {/* Favorites Section */}
+        {hasFavorites && (
+          <SidebarGroup>
+            <Collapsible open={favoritesOpen} onOpenChange={setFavoritesOpen}>
+              <CollapsibleTrigger asChild>
+                <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-foreground flex items-center justify-between w-full pr-2">
+                  <span className="flex items-center gap-2">
+                    <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                    {language === "pt" ? "Favoritos" : "Favorites"}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 transition-transform",
+                      !favoritesOpen && "-rotate-90"
+                    )}
+                  />
+                </SidebarGroupLabel>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {favoriteCompanies.map((company) => {
+                      const offlineCount = getStoreOfflineCount(company.id);
+                      return (
+                        <SidebarMenuItem key={company.id}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={location === `/store/${company.id}`}
+                            className="h-8"
+                          >
+                            <Link href={`/store/${company.id}`}>
+                              <Store className="w-3.5 h-3.5" />
+                              <span className="flex-1 truncate text-sm">{company.name}</span>
+                              {offlineCount > 0 && (
+                                <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                                  {offlineCount}
+                                </Badge>
+                              )}
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                    {favoriteLocations.map((loc) => {
+                      const locLights = lights.filter((l) => l.locationId === loc.id);
+                      const locTvs = tvs.filter((t) => t.locationId === loc.id);
+                      const hasOffline = locLights.some((l) => l.status === "offline") ||
+                                         locTvs.some((t) => t.status === "offline");
+                      return (
+                        <SidebarMenuItem key={loc.id}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={location === `/location/${loc.id}`}
+                            className="h-8"
+                          >
+                            <Link href={`/location/${loc.id}`}>
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span className="flex-1 truncate text-sm">{loc.name}</span>
+                              {hasOffline && (
+                                <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                              )}
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </Collapsible>
+          </SidebarGroup>
+        )}
+
         {/* Quick Access to Stores */}
         <SidebarGroup>
           <div className="flex items-center justify-between px-2">
             <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
               {t("nav.recentStores")}
+              {offlineDevices > 0 && (
+                <Badge variant="destructive" className="ml-2 text-[10px] h-4 px-1">
+                  {offlineDevices} offline
+                </Badge>
+              )}
             </SidebarGroupLabel>
             <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
               <Link href="/stores" data-testid="button-add-store">
@@ -394,15 +520,19 @@ export function AppSidebar() {
                   {language === "pt" ? "Nenhuma loja ainda" : "No stores yet"}
                 </div>
               )}
-              {companies.slice(0, 5).map((company) => (
-                <CompanyLocationTree
-                  key={company.id}
-                  company={company}
-                  locations={getLocationsForCompany(company.id)}
-                  getDeviceCount={getDeviceCountForLocation}
-                  currentPath={location}
-                />
-              ))}
+              {companies.slice(0, 5).map((company) => {
+                const offlineCount = getStoreOfflineCount(company.id);
+                return (
+                  <CompanyLocationTree
+                    key={company.id}
+                    company={company}
+                    locations={getLocationsForCompany(company.id)}
+                    getDeviceCount={getDeviceCountForLocation}
+                    currentPath={location}
+                    offlineCount={offlineCount}
+                  />
+                );
+              })}
               {companies.length > 5 && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild className="text-muted-foreground">
@@ -496,6 +626,7 @@ interface CompanyLocationTreeProps {
   locations: Location[];
   getDeviceCount: (locationId: string) => number;
   currentPath: string;
+  offlineCount?: number;
 }
 
 function CompanyLocationTree({
@@ -503,6 +634,7 @@ function CompanyLocationTree({
   locations,
   getDeviceCount,
   currentPath,
+  offlineCount = 0,
 }: CompanyLocationTreeProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -516,9 +648,15 @@ function CompanyLocationTree({
           >
             <Store className="w-4 h-4 text-muted-foreground group-hover:text-foreground" />
             <span className="flex-1 truncate text-sm">{company.name}</span>
-            <Badge variant="outline" className="text-xs h-5 px-1.5 opacity-60">
-              {locations.length}
-            </Badge>
+            {offlineCount > 0 ? (
+              <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                {offlineCount}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs h-5 px-1.5 opacity-60">
+                {locations.length}
+              </Badge>
+            )}
             <ChevronRight
               className={cn(
                 "w-3 h-3 transition-transform opacity-60",

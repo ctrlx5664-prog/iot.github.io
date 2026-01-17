@@ -14,6 +14,7 @@ import { useWebSocket } from "@/hooks/use-websocket";
 import Dashboard from "@/pages/dashboard";
 import Companies from "@/pages/companies";
 import LocationDetail from "@/pages/location-detail";
+import StoreDetail from "@/pages/store-detail";
 import Videos from "@/pages/videos";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
@@ -48,6 +49,7 @@ function AuthenticatedRoutes() {
       <Route path="/energy" component={Energy} />
       <Route path="/logs" component={ActivityLogs} />
       <Route path="/location/:id" component={LocationDetail} />
+      <Route path="/store/:id" component={StoreDetail} />
       <Route path="/videos" component={Videos} />
       <Route path="/ha" component={HomeAssistant} />
       <Route path="/organizations" component={Organizations} />

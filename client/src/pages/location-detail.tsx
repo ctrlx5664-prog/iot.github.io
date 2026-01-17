@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute } from "wouter";
+import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,11 +144,22 @@ export default function LocationDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-          <span>{company?.name}</span>
+        {/* Clickable Breadcrumbs */}
+        <nav className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+          <Link href="/dashboard" className="hover:text-foreground transition-colors">
+            {tr("Dashboard", "Dashboard")}
+          </Link>
           <span>/</span>
-          <span>{location.name}</span>
-        </div>
+          <Link href="/stores" className="hover:text-foreground transition-colors">
+            {tr("Lojas", "Stores")}
+          </Link>
+          <span>/</span>
+          <Link href={`/store/${company?.id}`} className="hover:text-foreground transition-colors">
+            {company?.name}
+          </Link>
+          <span>/</span>
+          <span className="text-foreground font-medium">{location.name}</span>
+        </nav>
         <h1 className="text-2xl font-semibold text-foreground" data-testid="text-page-title">
           {location.name}
         </h1>
