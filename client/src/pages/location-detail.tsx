@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Lightbulb, Monitor, Plus, LayoutDashboard, Maximize2, Minimize2, RefreshCw } from "lucide-react";
+import { Lightbulb, Monitor, Plus, LayoutDashboard, Maximize2, Minimize2, RefreshCw, Loader2, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Location, Light, Tv, Video, Company, InsertLight, InsertTv } from "@shared/schema";
@@ -41,6 +41,37 @@ export default function LocationDetail() {
   const [isTvDialogOpen, setIsTvDialogOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [dashboardKey, setDashboardKey] = useState(0);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState(tr("A inicializar...", "Initializing..."));
+
+  // Loading messages rotation
+  useEffect(() => {
+    if (!isDashboardLoading) return;
+
+    const messages = [
+      tr("A inicializar...", "Initializing..."),
+      tr("A conectar ao sistema...", "Connecting to the system..."),
+      tr("A carregar dashboard...", "Loading dashboard..."),
+      tr("A preparar interface...", "Preparing interface..."),
+      tr("Quase pronto...", "Almost ready..."),
+    ];
+
+    let index = 0;
+    const interval = setInterval(() => {
+      index = (index + 1) % messages.length;
+      setLoadingMessage(messages[index]);
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isDashboardLoading]);
+
+  const handleDashboardLoad = () => {
+    setLoadingMessage(tr("A finalizar...", "Finalizing..."));
+    // Wait for HA internal JS to finish loading
+    setTimeout(() => {
+      setIsDashboardLoading(false);
+    }, 3000);
+  };
 
   const token = getToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -124,6 +155,8 @@ export default function LocationDetail() {
   };
 
   const refreshDashboard = () => {
+    setIsDashboardLoading(true);
+    setLoadingMessage(tr("A inicializar...", "Initializing..."));
     setDashboardKey(prev => prev + 1);
   };
 
@@ -215,6 +248,51 @@ export default function LocationDetail() {
             </CardHeader>
             <CardContent className="p-0">
               <div className={`relative bg-[#1c1c1c] rounded-b-lg overflow-hidden ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-[600px]'}`}>
+                {/* Custom Loading Overlay - hides HA branding during load */}
+                {isDashboardLoading && (
+                  <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#1c1c1c]">
+                    <div className="flex flex-col items-center gap-6">
+                      {/* Brand logo */}
+                      <div className="relative">
+                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
+                          <Zap className="w-10 h-10 text-white" />
+                        </div>
+                        <div className="absolute -inset-2 rounded-3xl border-2 border-cyan-500/30 animate-ping" />
+                      </div>
+
+                      <div className="text-center">
+                        <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                          CtrlX
+                        </h2>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-muted-foreground">
+                        <Loader2 className="w-5 h-5 animate-spin text-cyan-500" />
+                        <span className="text-sm">{loadingMessage}</span>
+                      </div>
+
+                      <div className="w-48 h-1 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full"
+                          style={{
+                            animation: "loading-progress 2s ease-in-out infinite",
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="absolute inset-0 -z-10 opacity-5">
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
+                          backgroundSize: "40px 40px",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <iframe
                   key={dashboardKey}
                   src={dashboardUrl}
@@ -223,12 +301,23 @@ export default function LocationDetail() {
                     width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
                     height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
                     transform: `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`,
+                    opacity: isDashboardLoading ? 0 : 1,
+                    transition: "opacity 0.3s ease-in-out",
                   }}
                   title="Dashboard de Controlo"
                   allow="fullscreen"
                   sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                  onLoad={handleDashboardLoad}
                 />
               </div>
+
+              <style>{`
+                @keyframes loading-progress {
+                  0% { width: 20%; margin-left: 0; }
+                  50% { width: 60%; margin-left: 20%; }
+                  100% { width: 20%; margin-left: 80%; }
+                }
+              `}</style>
             </CardContent>
           </Card>
         </TabsContent>
