@@ -137,6 +137,9 @@ export default function LocationDetail() {
 
   // Dashboard URL - can be customized per location in the future
   const dashboardUrl = apiUrl("/api/ha/dashboard");
+  // Crop HA chrome (sidebar/top bar) to show only the control content
+  const HA_LEFT_CHROME_PX = 260;
+  const HA_TOP_CHROME_PX = 56;
 
   return (
     <div className="space-y-6">
@@ -204,7 +207,12 @@ export default function LocationDetail() {
                 <iframe
                   key={dashboardKey}
                   src={dashboardUrl}
-                  className="w-full h-full border-0"
+                  className="border-0"
+                  style={{
+                    width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
+                    height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
+                    transform: `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`,
+                  }}
                   title="Dashboard de Controlo"
                   allow="fullscreen"
                   sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
@@ -352,6 +360,7 @@ function LightControl({ light }: { light: Light }) {
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [localBrightness, setLocalBrightness] = useState(light.brightness);
   const [localColor, setLocalColor] = useState(light.color);
+  const mockStats = getMockLightStats(light.id);
 
   const updateLightMutation = useMutation({
     mutationFn: async (data: Partial<Light>) => {
@@ -429,6 +438,17 @@ function LightControl({ light }: { light: Light }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline">
+            {mockStats.watts}W
+          </Badge>
+          <Badge variant="outline">
+            {mockStats.kwhToday} kWh {tr("hoje", "today")}
+          </Badge>
+          <span>
+            {tr("Última atividade", "Last activity")}: {mockStats.lastActivity}
+          </span>
+        </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
           <Label className="text-sm font-normal">{tr("Brilho", "Brightness")}</Label>
@@ -618,4 +638,22 @@ function TvControl({ tv, videos }: { tv: Tv; videos: Video[] }) {
       </CardContent>
     </Card>
   );
+}
+
+function getMockLightStats(lightId: string) {
+  let hash = 0;
+  for (let i = 0; i < lightId.length; i += 1) {
+    hash = (hash * 31 + lightId.charCodeAt(i)) % 9973;
+  }
+  const watts = 8 + (hash % 40); // 8W - 47W
+  const kwhToday = (watts * ((hash % 6) + 2)) / 1000; // 2-7 hours
+  const minutesAgo = (hash % 120) + 5; // 5-125 min
+  const hours = Math.floor(minutesAgo / 60);
+  const minutes = minutesAgo % 60;
+  const lastActivity = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return {
+    watts,
+    kwhToday: kwhToday.toFixed(2),
+    lastActivity,
+  };
 }

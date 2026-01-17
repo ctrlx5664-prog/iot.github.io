@@ -46,6 +46,8 @@ type ActivityLog = {
   id: string;
   userId: string;
   username: string;
+  storeId: string;
+  storeName: string;
   action: string;
   entityType: string;
   entityId: string;
@@ -56,7 +58,13 @@ type ActivityLog = {
 };
 
 // Generate mock activity logs
-function generateMockLogs(): ActivityLog[] {
+function generateMockLogs(stores: { id: string; name: string }[]): ActivityLog[] {
+  const fallbackStores = [
+    { id: "s1", name: "Loja Lisboa" },
+    { id: "s2", name: "Loja Porto" },
+    { id: "s3", name: "Loja Coimbra" },
+  ];
+  const storePool = stores.length > 0 ? stores : fallbackStores;
   const users = [
     { id: "1", username: "admin" },
     { id: "2", username: "joao.silva" },
@@ -90,6 +98,7 @@ function generateMockLogs(): ActivityLog[] {
     const user = users[Math.floor(Math.random() * users.length)];
     const action = actions[Math.floor(Math.random() * actions.length)];
     const light = lights[Math.floor(Math.random() * lights.length)];
+    const store = storePool[Math.floor(Math.random() * storePool.length)];
     
     const createdAt = new Date(now);
     createdAt.setMinutes(createdAt.getMinutes() - i * Math.floor(Math.random() * 30 + 5));
@@ -98,6 +107,8 @@ function generateMockLogs(): ActivityLog[] {
       id: `log-${i}`,
       userId: user.id,
       username: user.username,
+      storeId: store.id,
+      storeName: store.name,
       action: action.action,
       entityType: action.entityType,
       entityId: action.entityType === "light" ? light.id : `entity-${i}`,
@@ -148,11 +159,16 @@ export default function ActivityLogsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [entityFilter, setEntityFilter] = useState<string>("all");
+  const [storeFilter, setStoreFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
   const itemsPerPage = 15;
 
+  const { data: companies = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/companies"],
+  });
+
   // Mock logs data
-  const allLogs = useMemo(() => generateMockLogs(), []);
+  const allLogs = useMemo(() => generateMockLogs(companies), [companies]);
 
   // Filter logs
   const filteredLogs = useMemo(() => {
@@ -163,10 +179,11 @@ export default function ActivityLogsPage() {
       
       const matchesAction = actionFilter === "all" || log.action === actionFilter;
       const matchesEntity = entityFilter === "all" || log.entityType === entityFilter;
+      const matchesStore = storeFilter === "all" || log.storeId === storeFilter;
       
-      return matchesSearch && matchesAction && matchesEntity;
+      return matchesSearch && matchesAction && matchesEntity && matchesStore;
     });
-  }, [allLogs, searchQuery, actionFilter, entityFilter]);
+  }, [allLogs, searchQuery, actionFilter, entityFilter, storeFilter]);
 
   // Paginate
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
@@ -344,6 +361,19 @@ export default function ActivityLogsPage() {
                 <SelectItem value="invite">{entityTypeLabels.invite[language]}</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={storeFilter} onValueChange={setStoreFilter}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder={language === "pt" ? "Filtrar por loja" : "Filter by store"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{language === "pt" ? "Todas as lojas" : "All stores"}</SelectItem>
+                {companies.map((company) => (
+                  <SelectItem key={company.id} value={company.id}>
+                    {company.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -356,6 +386,7 @@ export default function ActivityLogsPage() {
               <TableRow>
                 <TableHead className="w-[180px]">{t("logs.timestamp")}</TableHead>
                 <TableHead>{t("logs.user")}</TableHead>
+                <TableHead>{language === "pt" ? "Loja" : "Store"}</TableHead>
                 <TableHead>{t("logs.action")}</TableHead>
                 <TableHead>{t("logs.entity")}</TableHead>
                 <TableHead className="hidden md:table-cell">{t("logs.details")}</TableHead>
@@ -364,7 +395,7 @@ export default function ActivityLogsPage() {
             <TableBody>
               {paginatedLogs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     {t("logs.noLogs")}
                   </TableCell>
                 </TableRow>
@@ -389,6 +420,11 @@ export default function ActivityLogsPage() {
                           </div>
                           <span className="font-medium">{log.username}</span>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {log.storeName}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

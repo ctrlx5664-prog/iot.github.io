@@ -85,10 +85,12 @@ function generateMockDailyData(days: number = 30) {
   return data.reverse();
 }
 
-function generateMockStoreData() {
-  const stores = ['Loja Lisboa', 'Loja Porto', 'Loja Coimbra', 'Loja Faro'];
-  return stores.map(store => ({
-    name: store,
+function generateMockStoreData(stores: { id: string; name: string }[]) {
+  const fallbackStores = ['Loja Lisboa', 'Loja Porto', 'Loja Coimbra', 'Loja Faro'];
+  const list = stores.length > 0 ? stores : fallbackStores.map((name, idx) => ({ id: `s-${idx}`, name }));
+  return list.map(store => ({
+    id: store.id,
+    name: store.name,
     kwh: parseFloat((Math.random() * 100 + 50).toFixed(2)),
     lights: Math.floor(Math.random() * 20 + 5),
     avgBrightness: Math.floor(Math.random() * 40 + 50),
@@ -275,16 +277,11 @@ export default function EnergyPage() {
   const { t, language } = useTranslation();
   const [timeRange, setTimeRange] = useState<"today" | "week" | "month">("today");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedStoreId, setSelectedStoreId] = useState<string>("all");
 
   // Generate mock data
-  const hourlyData = useMemo(() => generateMockHourlyData(1), [refreshKey]);
-  const dailyData = useMemo(() => generateMockDailyData(30), [refreshKey]);
-  const storeData = useMemo(() => generateMockStoreData(), [refreshKey]);
-
-  // Calculate totals
-  const todayTotal = hourlyData.reduce((sum, d) => sum + d.kwh, 0);
-  const weekTotal = dailyData.slice(-7).reduce((sum, d) => sum + d.kwh, 0);
-  const monthTotal = dailyData.reduce((sum, d) => sum + d.kwh, 0);
+  const hourlyDataBase = useMemo(() => generateMockHourlyData(1), [refreshKey]);
+  const dailyDataBase = useMemo(() => generateMockDailyData(30), [refreshKey]);
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ['/api/companies'],
@@ -293,6 +290,31 @@ export default function EnergyPage() {
   const { data: lights = [] } = useQuery<Light[]>({
     queryKey: ['/api/lights'],
   });
+
+  const storeData = useMemo(() => generateMockStoreData(companies), [companies, refreshKey]);
+  const selectedStore = storeData.find((s) => s.id === selectedStoreId);
+  const totalStoreKwh = storeData.reduce((sum, s) => sum + s.kwh, 0) || 1;
+  const storeFactor = selectedStoreId === "all" ? 1 : (selectedStore?.kwh || 0) / totalStoreKwh;
+
+  const hourlyData = useMemo(
+    () => hourlyDataBase.map((d) => ({ ...d, kwh: parseFloat((d.kwh * storeFactor).toFixed(2)) })),
+    [hourlyDataBase, storeFactor]
+  );
+  const dailyData = useMemo(
+    () => dailyDataBase.map((d) => ({
+      ...d,
+      kwh: parseFloat((d.kwh * storeFactor).toFixed(2)),
+      cost: parseFloat((d.cost * storeFactor).toFixed(2)),
+      peakHours: parseFloat((d.peakHours * storeFactor).toFixed(2)),
+      offPeakHours: parseFloat((d.offPeakHours * storeFactor).toFixed(2)),
+    })),
+    [dailyDataBase, storeFactor]
+  );
+
+  // Calculate totals
+  const todayTotal = hourlyData.reduce((sum, d) => sum + d.kwh, 0);
+  const weekTotal = dailyData.slice(-7).reduce((sum, d) => sum + d.kwh, 0);
+  const monthTotal = dailyData.reduce((sum, d) => sum + d.kwh, 0);
 
   const activeLights = lights.filter(l => l.isOn).length;
 
@@ -309,7 +331,7 @@ export default function EnergyPage() {
             {t("energy.subtitle")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Select value={timeRange} onValueChange={(v: any) => setTimeRange(v)}>
             <SelectTrigger className="w-[150px]">
               <Calendar className="w-4 h-4 mr-2" />
@@ -319,6 +341,20 @@ export default function EnergyPage() {
               <SelectItem value="today">{t("energy.today")}</SelectItem>
               <SelectItem value="week">{t("energy.thisWeek")}</SelectItem>
               <SelectItem value="month">{t("energy.thisMonth")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
+            <SelectTrigger className="w-[220px]">
+              <Store className="w-4 h-4 mr-2" />
+              <SelectValue placeholder={language === "pt" ? "Filtrar por loja" : "Filter by store"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{language === "pt" ? "Todas as lojas" : "All stores"}</SelectItem>
+              {companies.map((company) => (
+                <SelectItem key={company.id} value={company.id}>
+                  {company.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button variant="outline" size="icon" onClick={() => setRefreshKey(k => k + 1)}>
@@ -471,7 +507,7 @@ export default function EnergyPage() {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2">
             <DonutChart
-              data={storeData.map((s, i) => ({
+              data={(selectedStoreId === "all" ? storeData : storeData.filter((s) => s.id === selectedStoreId)).map((s, i) => ({
                 name: s.name,
                 value: s.kwh,
                 color: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i % 4],
@@ -479,7 +515,7 @@ export default function EnergyPage() {
               height={200}
             />
             <div className="space-y-3">
-              {storeData.map((store, i) => (
+              {(selectedStoreId === "all" ? storeData : storeData.filter((s) => s.id === selectedStoreId)).map((store, i) => (
                 <div
                   key={store.name}
                   className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
