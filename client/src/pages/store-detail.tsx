@@ -401,10 +401,10 @@ export default function StoreDetail() {
 
   // Dashboard URL & cropping (same as home-assistant.tsx)
   // Use the same dashboard/view parameters as the main control dashboard
-  const params = new URLSearchParams();
-  params.set("dashboard", "dashboard-conex");
-  params.set("view", "aa");
-  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${params.toString()}`;
+  const dashboardParams = new URLSearchParams();
+  dashboardParams.set("dashboard", "dashboard-conex");
+  dashboardParams.set("view", "aa");
+  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${dashboardParams.toString()}`;
   const HA_LEFT_CHROME_PX = 285; // Match home-assistant.tsx
   const HA_TOP_CHROME_PX = 56;
 

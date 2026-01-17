@@ -178,10 +178,10 @@ export default function LocationDetail() {
   }
 
   // Dashboard URL - use the same parameters as home-assistant.tsx
-  const params = new URLSearchParams();
-  params.set("dashboard", "dashboard-conex");
-  params.set("view", "aa");
-  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${params.toString()}`;
+  const dashboardParams = new URLSearchParams();
+  dashboardParams.set("dashboard", "dashboard-conex");
+  dashboardParams.set("view", "aa");
+  const dashboardUrl = `${apiUrl("/api/ha/dashboard")}?${dashboardParams.toString()}`;
   // Crop HA chrome (sidebar/top bar) to show only the control content
   const HA_LEFT_CHROME_PX = 285; // Match home-assistant.tsx
   const HA_TOP_CHROME_PX = 56;
