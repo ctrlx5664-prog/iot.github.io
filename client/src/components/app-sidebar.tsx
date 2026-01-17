@@ -9,6 +9,17 @@ import {
   LogOut,
   User,
   ChevronUp,
+  ChevronDown,
+  ChevronRight,
+  Store,
+  MapPin,
+  Search,
+  Tv,
+  Monitor,
+  Leaf,
+  FileText,
+  UserCog,
+  Zap,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,9 +51,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { getToken, apiUrl, clearToken } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 interface UserInfo {
   id: string;
@@ -54,6 +65,9 @@ interface UserInfo {
 export function AppSidebar() {
   const [location, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const [lightControlOpen, setLightControlOpen] = useState(true);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [storesOpen, setStoresOpen] = useState(true);
 
   // Get current user info
   const { data: userData } = useQuery<{ user: UserInfo }>({
@@ -108,24 +122,33 @@ export function AppSidebar() {
     return locations.filter((l) => l.companyId === companyId);
   };
 
+  const onlineLights = lights.filter((l) => l.status === "online").length;
+  const onlineTvs = tvs.filter((t) => t.status === "online").length;
+  const totalDevices = lights.length + tvs.length;
+  const onlineDevices = onlineLights + onlineTvs;
+
   return (
-    <Sidebar>
+    <Sidebar className="border-r border-sidebar-border">
       <SidebarHeader className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600">
-            <Lightbulb className="w-4 h-4 text-white" />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 shadow-lg shadow-cyan-500/25">
+            <Zap className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h2 className="text-base font-semibold bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent">
+            <h2 className="text-base font-bold bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent tracking-tight">
               CtrlX
             </h2>
+            <p className="text-xs text-muted-foreground">Painel de Controlo</p>
           </div>
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="px-2">
+        {/* Main Navigation */}
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
+            Navegação
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
@@ -137,44 +160,182 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/companies"}>
-                  <Link href="/companies" data-testid="link-companies">
-                    <Building2 className="w-4 h-4" />
-                    <span>Companies</span>
+                <SidebarMenuButton asChild isActive={location === "/search"}>
+                  <Link href="/search" data-testid="link-search">
+                    <Search className="w-4 h-4" />
+                    <span>Pesquisar</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/organizations"}
-                >
-                  <Link href="/organizations" data-testid="link-organizations">
-                    <Users className="w-4 h-4" />
-                    <span>Organizações</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              {/* Home Assistant only shows when user has organizations */}
-              {hasOrganizations && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={location === "/ha"}>
-                    <Link href="/ha" data-testid="link-home-assistant">
-                      <LayoutDashboard className="w-4 h-4" />
-                      <span>Dashboard de Controlo</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Light Control Section */}
+        <SidebarGroup>
+          <Collapsible open={lightControlOpen} onOpenChange={setLightControlOpen}>
+            <CollapsibleTrigger asChild>
+              <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-foreground flex items-center justify-between w-full pr-2">
+                <span className="flex items-center gap-2">
+                  <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
+                  Controlo de Luzes
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 transition-transform",
+                    !lightControlOpen && "-rotate-90"
+                  )}
+                />
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {/* Home Assistant Dashboard */}
+                  {hasOrganizations && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild isActive={location === "/ha"}>
+                        <Link href="/ha" data-testid="link-home-assistant">
+                          <LayoutDashboard className="w-4 h-4" />
+                          <span>Dashboard de Controlo</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
+                  
+                  {/* Stores sub-section */}
+                  <SidebarMenuItem>
+                    <Collapsible open={storesOpen} onOpenChange={setStoresOpen}>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton className="w-full justify-between">
+                          <div className="flex items-center gap-2">
+                            <Store className="w-4 h-4" />
+                            <span>Lojas</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Badge variant="secondary" className="text-xs h-5 px-1.5">
+                              {companies.length}
+                            </Badge>
+                            <ChevronRight
+                              className={cn(
+                                "w-3 h-3 transition-transform",
+                                storesOpen && "rotate-90"
+                              )}
+                            />
+                          </div>
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenu className="ml-4 mt-1 space-y-0.5">
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={location === "/stores"}
+                              className="h-8"
+                            >
+                              <Link href="/stores" data-testid="link-stores">
+                                <Building2 className="w-3.5 h-3.5" />
+                                <span className="text-sm">Todas as Lojas</span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={location === "/companies"}
+                              className="h-8"
+                            >
+                              <Link href="/companies" data-testid="link-companies">
+                                <MapPin className="w-3.5 h-3.5" />
+                                <span className="text-sm">Espaços</span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        </SidebarMenu>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </Collapsible>
+        </SidebarGroup>
+
+        {/* Media Section */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
+            <span className="flex items-center gap-2">
+              <Tv className="w-3.5 h-3.5 text-blue-500" />
+              Media
+            </span>
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={location === "/videos"}>
+                  <Link href="/videos" data-testid="link-videos">
+                    <Monitor className="w-4 h-4" />
+                    <span>Vídeos & TVs</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Administration Section */}
+        <SidebarGroup>
+          <Collapsible open={adminOpen} onOpenChange={setAdminOpen}>
+            <CollapsibleTrigger asChild>
+              <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-foreground flex items-center justify-between w-full pr-2">
+                <span className="flex items-center gap-2">
+                  <UserCog className="w-3.5 h-3.5 text-purple-500" />
+                  Administração
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 transition-transform",
+                    !adminOpen && "-rotate-90"
+                  )}
+                />
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/organizations"}
+                    >
+                      <Link href="/organizations" data-testid="link-organizations">
+                        <Building2 className="w-4 h-4" />
+                        <span>Organizações</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/members"}>
+                      <Link href="/members" data-testid="link-members">
+                        <Users className="w-4 h-4" />
+                        <span>Membros</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </Collapsible>
+        </SidebarGroup>
+
+        {/* Quick Access to Stores */}
         <SidebarGroup>
           <div className="flex items-center justify-between px-2">
-            <SidebarGroupLabel>Locations</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
+              Lojas Recentes
+            </SidebarGroupLabel>
             <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
-              <Link href="/companies" data-testid="button-add-company">
+              <Link href="/stores" data-testid="button-add-store">
                 <Plus className="w-3 h-3" />
               </Link>
             </Button>
@@ -183,10 +344,10 @@ export function AppSidebar() {
             <SidebarMenu>
               {companies.length === 0 && (
                 <div className="px-2 py-4 text-xs text-muted-foreground">
-                  No companies yet
+                  Nenhuma loja ainda
                 </div>
               )}
-              {companies.map((company) => (
+              {companies.slice(0, 5).map((company) => (
                 <CompanyLocationTree
                   key={company.id}
                   company={company}
@@ -195,19 +356,33 @@ export function AppSidebar() {
                   currentPath={location}
                 />
               ))}
+              {companies.length > 5 && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild className="text-muted-foreground">
+                    <Link href="/stores">
+                      <span className="text-xs">Ver todas ({companies.length})</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
-        {/* Device count */}
-        <div className="px-4 py-2 text-xs text-muted-foreground">
-          <div className="flex items-center justify-between">
-            <span>Total Devices</span>
-            <Badge variant="secondary" className="text-xs">
-              {lights.length + tvs.length}
-            </Badge>
+        {/* Device Stats */}
+        <div className="px-4 py-2 space-y-1">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Dispositivos</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="font-medium">{onlineDevices}</span>
+              </div>
+              <span className="text-muted-foreground">/</span>
+              <span className="text-muted-foreground">{totalDevices}</span>
+            </div>
           </div>
         </div>
 
@@ -217,7 +392,7 @@ export function AppSidebar() {
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-3 w-full p-3 hover:bg-sidebar-accent rounded-lg transition-colors">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                  <AvatarFallback className="bg-gradient-to-br from-cyan-400 to-blue-500 text-white text-xs font-bold">
                     {getInitials(user.username)}
                   </AvatarFallback>
                 </Avatar>
@@ -280,27 +455,34 @@ function CompanyLocationTree({
   getDeviceCount,
   currentPath,
 }: CompanyLocationTreeProps) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <SidebarMenuItem>
         <CollapsibleTrigger asChild>
-          <SidebarMenuButton data-testid={`button-company-${company.id}`}>
-            <Building2 className="w-4 h-4" />
-            <span className="flex-1 truncate">{company.name}</span>
-            <ChevronDown
-              className={`w-3 h-3 transition-transform ${
-                isOpen ? "rotate-0" : "-rotate-90"
-              }`}
+          <SidebarMenuButton
+            data-testid={`button-company-${company.id}`}
+            className="group"
+          >
+            <Store className="w-4 h-4 text-muted-foreground group-hover:text-foreground" />
+            <span className="flex-1 truncate text-sm">{company.name}</span>
+            <Badge variant="outline" className="text-xs h-5 px-1.5 opacity-60">
+              {locations.length}
+            </Badge>
+            <ChevronRight
+              className={cn(
+                "w-3 h-3 transition-transform opacity-60",
+                isOpen && "rotate-90"
+              )}
             />
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <SidebarMenu className="ml-4 border-l border-sidebar-border">
+          <SidebarMenu className="ml-4 border-l border-sidebar-border pl-2">
             {locations.length === 0 && (
               <div className="px-2 py-2 text-xs text-muted-foreground">
-                No locations
+                Sem espaços
               </div>
             )}
             {locations.map((location) => (
@@ -309,12 +491,14 @@ function CompanyLocationTree({
                   asChild
                   isActive={currentPath === `/location/${location.id}`}
                   data-testid={`link-location-${location.id}`}
+                  className="h-8"
                 >
                   <Link href={`/location/${location.id}`}>
-                    <span className="flex-1 truncate text-sm">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span className="flex-1 truncate text-xs">
                       {location.name}
                     </span>
-                    <Badge variant="secondary" className="text-xs h-5">
+                    <Badge variant="secondary" className="text-xs h-4 px-1">
                       {getDeviceCount(location.id)}
                     </Badge>
                   </Link>

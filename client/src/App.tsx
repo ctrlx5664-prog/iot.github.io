@@ -20,6 +20,9 @@ import Organizations from "@/pages/organizations";
 import AcceptInvite from "@/pages/invite";
 import Profile from "@/pages/profile";
 import Landing from "@/pages/landing";
+import Stores from "@/pages/stores";
+import Members from "@/pages/members";
+import Search from "@/pages/search";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useEffect, type CSSProperties } from "react";
@@ -34,6 +37,9 @@ function AuthenticatedRoutes() {
     <Switch>
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/companies" component={Companies} />
+      <Route path="/stores" component={Stores} />
+      <Route path="/members" component={Members} />
+      <Route path="/search" component={Search} />
       <Route path="/location/:id" component={LocationDetail} />
       <Route path="/videos" component={Videos} />
       <Route path="/ha" component={HomeAssistant} />
