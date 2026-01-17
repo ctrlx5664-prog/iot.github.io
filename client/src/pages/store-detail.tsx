@@ -510,13 +510,13 @@ export default function StoreDetail() {
             </CardHeader>
             <CardContent className="p-0">
               <div
-                className={`relative bg-[#1c1c1c] rounded-b-lg overflow-hidden ${
+                className={`relative overflow-hidden bg-background ${
                   isFullscreen ? "h-[calc(100vh-80px)]" : "h-[600px]"
                 }`}
               >
                 {/* Custom Loading Overlay - hides HA branding during load */}
                 {isDashboardLoading && (
-                  <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#1c1c1c]">
+                  <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background">
                     <div className="flex flex-col items-center gap-6">
                       {/* Brand logo */}
                       <div className="relative">
@@ -562,7 +562,10 @@ export default function StoreDetail() {
                 <iframe
                   key={dashboardKey}
                   src={dashboardUrl}
-                  className="border-0"
+                  className="w-full h-full border-0"
+                  title="Dashboard de Controlo"
+                  onLoad={handleDashboardLoad}
+                  sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
                   style={{
                     width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
                     height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
@@ -570,10 +573,6 @@ export default function StoreDetail() {
                     opacity: isDashboardLoading ? 0 : 1,
                     transition: "opacity 0.3s ease-in-out",
                   }}
-                  title="Dashboard de Controlo"
-                  allow="fullscreen"
-                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-                  onLoad={handleDashboardLoad}
                 />
               </div>
 
