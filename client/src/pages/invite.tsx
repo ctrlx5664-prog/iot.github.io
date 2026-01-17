@@ -9,9 +9,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { apiUrl, getToken } from "@/lib/auth";
+import { useTranslation } from "@/lib/i18n";
 
 export default function AcceptInvite() {
   const [, navigate] = useLocation();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const params = useParams<{ code: string }>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,13 +35,16 @@ export default function AcceptInvite() {
         },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to accept invite");
+      if (!res.ok) throw new Error(data?.error || tr("Falha ao aceitar convite", "Failed to accept invite"));
       setSuccess(
-        `Joined ${data.organization?.name || "organization"} successfully!`
+        tr(
+          `Entrou em ${data.organization?.name || "organização"} com sucesso!`,
+          `Joined ${data.organization?.name || "organization"} successfully!`
+        )
       );
       setTimeout(() => navigate("/organizations"), 2000);
     } catch (err: any) {
-      setError(err?.message || "Failed to accept invite");
+      setError(err?.message || tr("Falha ao aceitar convite", "Failed to accept invite"));
     } finally {
       setLoading(false);
     }
@@ -49,21 +55,21 @@ export default function AcceptInvite() {
       <div className="min-h-screen flex items-center justify-center bg-muted/50">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Join Organization</CardTitle>
+            <CardTitle>{tr("Juntar-se à Organização", "Join Organization")}</CardTitle>
             <CardDescription>
-              You need to be logged in to accept this invite.
+              {tr("Precisa de iniciar sessão para aceitar este convite.", "You need to be logged in to accept this invite.")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Button className="w-full" onClick={() => navigate("/login")}>
-              Login
+              {tr("Entrar", "Login")}
             </Button>
             <Button
               variant="outline"
               className="w-full"
               onClick={() => navigate("/register")}
             >
-              Create Account
+              {tr("Criar Conta", "Create Account")}
             </Button>
           </CardContent>
         </Card>
@@ -75,9 +81,9 @@ export default function AcceptInvite() {
     <div className="min-h-screen flex items-center justify-center bg-muted/50">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Accept Invite</CardTitle>
+          <CardTitle>{tr("Aceitar Convite", "Accept Invite")}</CardTitle>
           <CardDescription>
-            You've been invited to join an organization.
+            {tr("Foi convidado para se juntar a uma organização.", "You've been invited to join an organization.")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -89,7 +95,7 @@ export default function AcceptInvite() {
               onClick={acceptInvite}
               disabled={loading}
             >
-              {loading ? "Joining..." : "Accept Invite"}
+              {loading ? tr("A entrar...", "Joining...") : tr("Aceitar Convite", "Accept Invite")}
             </Button>
           )}
         </CardContent>

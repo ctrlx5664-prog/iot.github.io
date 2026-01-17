@@ -18,9 +18,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Company, Location, InsertCompany, InsertLocation } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "@/lib/i18n";
 
 export default function Companies() {
   const { toast } = useToast();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [isCompanyDialogOpen, setIsCompanyDialogOpen] = useState(false);
   const [isLocationDialogOpen, setIsLocationDialogOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
@@ -41,8 +44,8 @@ export default function Companies() {
       queryClient.invalidateQueries({ queryKey: ['/api/companies'] });
       setIsCompanyDialogOpen(false);
       toast({
-        title: "Success",
-        description: "Company created successfully",
+        title: tr("Sucesso", "Success"),
+        description: tr("Loja criada com sucesso", "Company created successfully"),
       });
     },
   });
@@ -55,8 +58,8 @@ export default function Companies() {
       queryClient.invalidateQueries({ queryKey: ['/api/locations'] });
       setIsLocationDialogOpen(false);
       toast({
-        title: "Success",
-        description: "Location added successfully",
+        title: tr("Sucesso", "Success"),
+        description: tr("Espaço adicionado com sucesso", "Location added successfully"),
       });
     },
   });
@@ -89,43 +92,43 @@ export default function Companies() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground" data-testid="text-page-title">
-            Companies & Locations
+            {tr("Lojas e Espaços", "Companies & Locations")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage your organizational structure
+            {tr("Gerir a sua estrutura organizacional", "Manage your organizational structure")}
           </p>
         </div>
         <Dialog open={isCompanyDialogOpen} onOpenChange={setIsCompanyDialogOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-company">
               <Plus className="w-4 h-4 mr-2" />
-              Add Company
+              {tr("Adicionar Loja", "Add Company")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add New Company</DialogTitle>
+              <DialogTitle>{tr("Adicionar Loja", "Add New Company")}</DialogTitle>
               <DialogDescription>
-                Create a new company to organize your IoT devices
+                {tr("Crie uma nova loja para organizar os seus dispositivos IoT", "Create a new company to organize your IoT devices")}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleCreateCompany} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="company-name">Company Name *</Label>
+                <Label htmlFor="company-name">{tr("Nome da Loja *", "Company Name *")}</Label>
                 <Input
                   id="company-name"
                   name="name"
-                  placeholder="e.g., Acme Corporation"
+                  placeholder={tr("ex: Loja Central", "e.g., Acme Corporation")}
                   required
                   data-testid="input-company-name"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="company-description">Description</Label>
+                <Label htmlFor="company-description">{tr("Descrição", "Description")}</Label>
                 <Textarea
                   id="company-description"
                   name="description"
-                  placeholder="Optional description"
+                  placeholder={tr("Descrição opcional", "Optional description")}
                   rows={3}
                   data-testid="input-company-description"
                 />
@@ -137,14 +140,14 @@ export default function Companies() {
                   onClick={() => setIsCompanyDialogOpen(false)}
                   data-testid="button-cancel-company"
                 >
-                  Cancel
+                  {tr("Cancelar", "Cancel")}
                 </Button>
                 <Button
                   type="submit"
                   disabled={createCompanyMutation.isPending}
                   data-testid="button-submit-company"
                 >
-                  {createCompanyMutation.isPending ? "Creating..." : "Create Company"}
+                  {createCompanyMutation.isPending ? tr("A criar...", "Creating...") : tr("Criar Loja", "Create Company")}
                 </Button>
               </div>
             </form>
@@ -156,13 +159,13 @@ export default function Companies() {
         <Card>
           <CardContent className="py-16 text-center">
             <Building2 className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No companies yet</h3>
+            <h3 className="text-lg font-medium mb-2">{tr("Ainda sem lojas", "No companies yet")}</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Get started by creating your first company
+              {tr("Comece por criar a sua primeira loja", "Get started by creating your first company")}
             </p>
             <Button onClick={() => setIsCompanyDialogOpen(true)} data-testid="button-create-first-company">
               <Plus className="w-4 h-4 mr-2" />
-              Create Company
+              {tr("Criar Loja", "Create Company")}
             </Button>
           </CardContent>
         </Card>
@@ -189,7 +192,7 @@ export default function Companies() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Locations</span>
+                    <span className="text-muted-foreground">{tr("Espaços", "Locations")}</span>
                     <Badge variant="secondary">{companyLocations.length}</Badge>
                   </div>
 
@@ -207,7 +210,7 @@ export default function Companies() {
                       ))}
                       {companyLocations.length > 3 && (
                         <p className="text-xs text-muted-foreground pl-5">
-                          +{companyLocations.length - 3} more
+                          +{companyLocations.length - 3} {tr("mais", "more")}
                         </p>
                       )}
                     </div>
@@ -229,33 +232,35 @@ export default function Companies() {
                         data-testid={`button-add-location-${company.id}`}
                       >
                         <Plus className="w-3 h-3 mr-2" />
-                        Add Location
+                        {tr("Adicionar Espaço", "Add Location")}
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Add Location to {company.name}</DialogTitle>
+                        <DialogTitle>
+                          {tr("Adicionar Espaço a", "Add Location to")} {company.name}
+                        </DialogTitle>
                         <DialogDescription>
-                          Create a new location where devices will be installed
+                          {tr("Crie um novo espaço onde os dispositivos serão instalados", "Create a new location where devices will be installed")}
                         </DialogDescription>
                       </DialogHeader>
                       <form onSubmit={handleCreateLocation} className="space-y-4">
                         <div className="space-y-2">
-                          <Label htmlFor="location-name">Location Name *</Label>
+                          <Label htmlFor="location-name">{tr("Nome do Espaço *", "Location Name *")}</Label>
                           <Input
                             id="location-name"
                             name="name"
-                            placeholder="e.g., Main Office, Floor 3"
+                            placeholder={tr("ex: Escritório Principal, Piso 3", "e.g., Main Office, Floor 3")}
                             required
                             data-testid="input-location-name"
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="location-description">Description</Label>
+                          <Label htmlFor="location-description">{tr("Descrição", "Description")}</Label>
                           <Textarea
                             id="location-description"
                             name="description"
-                            placeholder="Optional description"
+                            placeholder={tr("Descrição opcional", "Optional description")}
                             rows={3}
                             data-testid="input-location-description"
                           />
@@ -267,14 +272,14 @@ export default function Companies() {
                             onClick={() => setIsLocationDialogOpen(false)}
                             data-testid="button-cancel-location"
                           >
-                            Cancel
+                            {tr("Cancelar", "Cancel")}
                           </Button>
                           <Button
                             type="submit"
                             disabled={createLocationMutation.isPending}
                             data-testid="button-submit-location"
                           >
-                            {createLocationMutation.isPending ? "Adding..." : "Add Location"}
+                            {createLocationMutation.isPending ? tr("A adicionar...", "Adding...") : tr("Adicionar Espaço", "Add Location")}
                           </Button>
                         </div>
                       </form>

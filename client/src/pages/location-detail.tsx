@@ -23,17 +23,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Lightbulb, Monitor, Plus, Upload, Play, Pause, RotateCw } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Lightbulb, Monitor, Plus, LayoutDashboard, Maximize2, Minimize2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Location, Light, Tv, Video, Company, InsertLight, InsertTv } from "@shared/schema";
+import { apiUrl, getToken } from "@/lib/auth";
+import { useTranslation } from "@/lib/i18n";
 
 export default function LocationDetail() {
   const [, params] = useRoute("/location/:id");
   const locationId = params?.id;
   const { toast } = useToast();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [isLightDialogOpen, setIsLightDialogOpen] = useState(false);
   const [isTvDialogOpen, setIsTvDialogOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [dashboardKey, setDashboardKey] = useState(0);
+
+  const token = getToken();
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const { data: location } = useQuery<Location>({
     queryKey: ['/api/locations', locationId],
@@ -68,8 +78,8 @@ export default function LocationDetail() {
       queryClient.invalidateQueries({ queryKey: ['/api/lights'] });
       setIsLightDialogOpen(false);
       toast({
-        title: "Success",
-        description: "Light added successfully",
+        title: "Sucesso",
+        description: "Luz adicionada com sucesso",
       });
     },
   });
@@ -82,8 +92,8 @@ export default function LocationDetail() {
       queryClient.invalidateQueries({ queryKey: ['/api/tvs'] });
       setIsTvDialogOpen(false);
       toast({
-        title: "Success",
-        description: "TV added successfully",
+        title: "Sucesso",
+        description: "TV adicionada com sucesso",
       });
     },
   });
@@ -113,13 +123,20 @@ export default function LocationDetail() {
     });
   };
 
+  const refreshDashboard = () => {
+    setDashboardKey(prev => prev + 1);
+  };
+
   if (!location) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Loading...</p>
+        <p className="text-muted-foreground">{tr("A carregar...", "Loading...")}</p>
       </div>
     );
   }
+
+  // Dashboard URL - can be customized per location in the future
+  const dashboardUrl = apiUrl("/api/ha/dashboard");
 
   return (
     <div className="space-y-6">
@@ -137,29 +154,91 @@ export default function LocationDetail() {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="space-y-4">
+      <Tabs defaultValue="dashboard" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="dashboard" className="gap-2">
+            <LayoutDashboard className="w-4 h-4" />
+            {tr("Dashboard de Controlo", "Control Dashboard")}
+          </TabsTrigger>
+          <TabsTrigger value="lights" className="gap-2">
+            <Lightbulb className="w-4 h-4" />
+            {tr("Luzes", "Lights")}
+            <Badge variant="secondary" className="ml-1">{locationLights.length}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="tvs" className="gap-2">
+            <Monitor className="w-4 h-4" />
+            {tr("TVs", "TVs")}
+            <Badge variant="secondary" className="ml-1">{locationTvs.length}</Badge>
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Dashboard de Controlo Tab */}
+        <TabsContent value="dashboard" className="space-y-4">
+          <Card className={isFullscreen ? "fixed inset-0 z-50 rounded-none" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-lg">{tr("Dashboard de Controlo", "Control Dashboard")}</CardTitle>
+                <CardDescription>
+                  {tr("Monitorização e controlo em tempo real", "Real-time monitoring and control")}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="icon" onClick={refreshDashboard}>
+                  <RefreshCw className="w-4 h-4" />
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="icon"
+                  onClick={() => setIsFullscreen(!isFullscreen)}
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="w-4 h-4" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className={`relative bg-[#1c1c1c] rounded-b-lg overflow-hidden ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-[600px]'}`}>
+                <iframe
+                  key={dashboardKey}
+                  src={dashboardUrl}
+                  className="w-full h-full border-0"
+                  title="Dashboard de Controlo"
+                  allow="fullscreen"
+                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Lights Tab */}
+        <TabsContent value="lights" className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-medium">Smart Lights</h2>
+            <h2 className="text-lg font-medium">{tr("Luzes Inteligentes", "Smart Lights")}</h2>
             <Dialog open={isLightDialogOpen} onOpenChange={setIsLightDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" data-testid="button-add-light">
                   <Plus className="w-4 h-4 mr-2" />
-                  Add Light
+                  {tr("Adicionar Luz", "Add Light")}
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Add Smart Light</DialogTitle>
-                  <DialogDescription>Add a new controllable light to this location</DialogDescription>
+                  <DialogTitle>{tr("Adicionar Luz Inteligente", "Add Smart Light")}</DialogTitle>
+                  <DialogDescription>
+                    {tr("Adicione uma nova luz controlável a este espaço", "Add a new controllable light to this space")}
+                  </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleCreateLight} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="light-name">Light Name *</Label>
+                    <Label htmlFor="light-name">{tr("Nome da Luz *", "Light Name *")}</Label>
                     <Input
                       id="light-name"
                       name="name"
-                      placeholder="e.g., Ceiling Light 1"
+                      placeholder={tr("ex: Luz do Teto 1", "e.g., Ceiling Light 1")}
                       required
                       data-testid="input-light-name"
                     />
@@ -170,10 +249,10 @@ export default function LocationDetail() {
                       variant="outline"
                       onClick={() => setIsLightDialogOpen(false)}
                     >
-                      Cancel
+                      {tr("Cancelar", "Cancel")}
                     </Button>
                     <Button type="submit" disabled={createLightMutation.isPending} data-testid="button-submit-light">
-                      {createLightMutation.isPending ? "Adding..." : "Add Light"}
+                      {createLightMutation.isPending ? tr("A adicionar...", "Adding...") : tr("Adicionar Luz", "Add Light")}
                     </Button>
                   </div>
                 </form>
@@ -185,40 +264,45 @@ export default function LocationDetail() {
             <Card>
               <CardContent className="py-8 text-center">
                 <Lightbulb className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No lights added yet</p>
+                <p className="text-sm text-muted-foreground">
+                  {tr("Ainda sem luzes adicionadas", "No lights added yet")}
+                </p>
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
               {locationLights.map((light) => (
                 <LightControl key={light.id} light={light} />
               ))}
             </div>
           )}
-        </div>
+        </TabsContent>
 
-        <div className="space-y-4">
+        {/* TVs Tab */}
+        <TabsContent value="tvs" className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-medium">TV Displays</h2>
+            <h2 className="text-lg font-medium">{tr("Televisões", "TVs")}</h2>
             <Dialog open={isTvDialogOpen} onOpenChange={setIsTvDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" data-testid="button-add-tv">
                   <Plus className="w-4 h-4 mr-2" />
-                  Add TV
+                  {tr("Adicionar TV", "Add TV")}
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Add TV Display</DialogTitle>
-                  <DialogDescription>Add a new TV display to this location</DialogDescription>
+                  <DialogTitle>{tr("Adicionar TV", "Add TV")}</DialogTitle>
+                  <DialogDescription>
+                    {tr("Adicione uma nova TV a este espaço", "Add a new TV to this space")}
+                  </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleCreateTv} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="tv-name">TV Name *</Label>
+                    <Label htmlFor="tv-name">{tr("Nome da TV *", "TV Name *")}</Label>
                     <Input
                       id="tv-name"
                       name="name"
-                      placeholder="e.g., Lobby Display 1"
+                      placeholder={tr("ex: TV do Lobby 1", "e.g., Lobby TV 1")}
                       required
                       data-testid="input-tv-name"
                     />
@@ -229,10 +313,10 @@ export default function LocationDetail() {
                       variant="outline"
                       onClick={() => setIsTvDialogOpen(false)}
                     >
-                      Cancel
+                      {tr("Cancelar", "Cancel")}
                     </Button>
                     <Button type="submit" disabled={createTvMutation.isPending} data-testid="button-submit-tv">
-                      {createTvMutation.isPending ? "Adding..." : "Add TV"}
+                      {createTvMutation.isPending ? tr("A adicionar...", "Adding...") : tr("Adicionar TV", "Add TV")}
                     </Button>
                   </div>
                 </form>
@@ -244,24 +328,28 @@ export default function LocationDetail() {
             <Card>
               <CardContent className="py-8 text-center">
                 <Monitor className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No TVs added yet</p>
+                <p className="text-sm text-muted-foreground">
+                  {tr("Ainda sem TVs adicionadas", "No TVs added yet")}
+                </p>
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
               {locationTvs.map((tv) => (
                 <TvControl key={tv.id} tv={tv} videos={videos} />
               ))}
             </div>
           )}
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
 function LightControl({ light }: { light: Light }) {
   const { toast } = useToast();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [localBrightness, setLocalBrightness] = useState(light.brightness);
   const [localColor, setLocalColor] = useState(light.color);
 
@@ -274,8 +362,8 @@ function LightControl({ light }: { light: Light }) {
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to update light",
+        title: tr("Erro", "Error"),
+        description: tr("Falha ao atualizar luz", "Failed to update light"),
         variant: "destructive",
       });
     },
@@ -300,12 +388,12 @@ function LightControl({ light }: { light: Light }) {
   };
 
   const presetColors = [
-    { name: 'Warm White', color: '#FFF3E0' },
-    { name: 'Cool White', color: '#E3F2FD' },
-    { name: 'Red', color: '#EF5350' },
-    { name: 'Green', color: '#66BB6A' },
-    { name: 'Blue', color: '#42A5F5' },
-    { name: 'Purple', color: '#AB47BC' },
+    { name: tr("Branco Quente", "Warm White"), color: '#FFF3E0' },
+    { name: tr("Branco Frio", "Cool White"), color: '#E3F2FD' },
+    { name: tr("Vermelho", "Red"), color: '#EF5350' },
+    { name: tr("Verde", "Green"), color: '#66BB6A' },
+    { name: tr("Azul", "Blue"), color: '#42A5F5' },
+    { name: tr("Roxo", "Purple"), color: '#AB47BC' },
   ];
 
   return (
@@ -326,7 +414,9 @@ function LightControl({ light }: { light: Light }) {
               <CardTitle className="text-base font-medium truncate">{light.name}</CardTitle>
               <div className="flex items-center gap-2 mt-1">
                 <div className={`w-2 h-2 rounded-full ${light.status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                <span className="text-xs text-muted-foreground capitalize">{light.status}</span>
+                <span className="text-xs text-muted-foreground capitalize">
+                  {light.status === 'online' ? tr("Online", "Online") : tr("Offline", "Offline")}
+                </span>
               </div>
             </div>
           </div>
@@ -341,7 +431,7 @@ function LightControl({ light }: { light: Light }) {
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-normal">Brightness</Label>
+          <Label className="text-sm font-normal">{tr("Brilho", "Brightness")}</Label>
             <span className="text-sm font-medium" data-testid={`text-brightness-${light.id}`}>
               {localBrightness}%
             </span>
@@ -359,7 +449,7 @@ function LightControl({ light }: { light: Light }) {
         </div>
 
         <div className="space-y-2">
-          <Label className="text-sm font-normal">Color</Label>
+          <Label className="text-sm font-normal">{tr("Cor", "Color")}</Label>
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -395,7 +485,7 @@ function LightControl({ light }: { light: Light }) {
                   updateLightMutation.mutate({ color: preset.color });
                 }}
                 disabled={!light.isOn || updateLightMutation.isPending || light.status === 'offline'}
-                className="w-full h-8 rounded-md border-2 hover-elevate active-elevate-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="w-full h-8 rounded-md border-2 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 style={{
                   backgroundColor: preset.color,
                   borderColor: localColor.toUpperCase() === preset.color.toUpperCase() ? 'hsl(var(--primary))' : 'transparent',
@@ -413,6 +503,8 @@ function LightControl({ light }: { light: Light }) {
 
 function TvControl({ tv, videos }: { tv: Tv; videos: Video[] }) {
   const { toast } = useToast();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const currentVideo = videos.find(v => v.id === tv.currentVideoId);
 
   const updateTvMutation = useMutation({
@@ -422,14 +514,14 @@ function TvControl({ tv, videos }: { tv: Tv; videos: Video[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/tvs'] });
       toast({
-        title: "Success",
-        description: "TV updated successfully",
+        title: tr("Sucesso", "Success"),
+        description: tr("TV atualizada com sucesso", "TV updated successfully"),
       });
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to update TV",
+        title: tr("Erro", "Error"),
+        description: tr("Falha ao atualizar TV", "Failed to update TV"),
         variant: "destructive",
       });
     },
@@ -455,31 +547,32 @@ function TvControl({ tv, videos }: { tv: Tv; videos: Video[] }) {
               <CardTitle className="text-base font-medium truncate">{tv.name}</CardTitle>
               <div className="flex items-center gap-2 mt-1">
                 <div className={`w-2 h-2 rounded-full ${tv.status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                <span className="text-xs text-muted-foreground capitalize">{tv.status}</span>
+                <span className="text-xs text-muted-foreground capitalize">
+                  {tv.status === 'online' ? 'Online' : 'Offline'}
+                </span>
               </div>
             </div>
           </div>
           {currentVideo && (
             <Badge variant={tv.isLooping ? "default" : "secondary"} className="flex items-center gap-1">
-              {tv.isLooping ? <RotateCw className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-              <span className="text-xs">{tv.isLooping ? 'Looping' : 'Once'}</span>
+              <span className="text-xs">{tv.isLooping ? tr("Loop", "Loop") : tr("Uma vez", "Once")}</span>
             </Badge>
           )}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label className="text-sm font-normal">Current Video</Label>
+          <Label className="text-sm font-normal">{tr("Vídeo Atual", "Current Video")}</Label>
           <Select
             value={tv.currentVideoId || 'none'}
             onValueChange={handleVideoChange}
             disabled={updateTvMutation.isPending || tv.status === 'offline'}
           >
             <SelectTrigger data-testid={`select-video-${tv.id}`}>
-              <SelectValue placeholder="Select a video" />
+              <SelectValue placeholder={tr("Selecione um vídeo", "Select a video")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">No video</SelectItem>
+              <SelectItem value="none">{tr("Sem vídeo", "No video")}</SelectItem>
               {videos.map((video) => (
                 <SelectItem key={video.id} value={video.id}>
                   {video.name}
@@ -496,7 +589,7 @@ function TvControl({ tv, videos }: { tv: Tv; videos: Video[] }) {
                 <p className="text-sm font-medium truncate">{currentVideo.name}</p>
                 {currentVideo.duration && (
                   <p className="text-xs text-muted-foreground">
-                    Duration: {Math.floor(currentVideo.duration / 60)}:{(currentVideo.duration % 60).toString().padStart(2, '0')}
+                    {tr("Duração", "Duration")}: {Math.floor(currentVideo.duration / 60)}:{(currentVideo.duration % 60).toString().padStart(2, '0')}
                   </p>
                 )}
               </div>
@@ -504,7 +597,7 @@ function TvControl({ tv, videos }: { tv: Tv; videos: Video[] }) {
 
             <div className="flex items-center justify-between">
               <Label htmlFor={`loop-${tv.id}`} className="text-sm font-normal">
-                Loop playback
+                {tr("Reprodução em loop", "Loop playback")}
               </Label>
               <Switch
                 id={`loop-${tv.id}`}
@@ -519,7 +612,7 @@ function TvControl({ tv, videos }: { tv: Tv; videos: Video[] }) {
 
         {videos.length === 0 && (
           <div className="text-center py-4 text-sm text-muted-foreground">
-            No videos available. Upload videos first.
+            {tr("Sem vídeos disponíveis. Carregue vídeos primeiro.", "No videos available. Upload videos first.")}
           </div>
         )}
       </CardContent>

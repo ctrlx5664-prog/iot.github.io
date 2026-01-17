@@ -39,6 +39,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { useTranslation } from "@/lib/i18n";
 
 type Organization = {
   id: string;
@@ -67,6 +68,8 @@ type Member = {
 
 export default function Organizations() {
   const [, navigate] = useLocation();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,10 +88,10 @@ export default function Organizations() {
       });
       const data = await res.json();
       if (!res.ok)
-        throw new Error(data?.error || "Falha ao carregar organizações");
+        throw new Error(data?.error || tr("Falha ao carregar organizações", "Failed to load organizations"));
       setOrgs(data);
     } catch (err: any) {
-      setError(err?.message || "Falha ao carregar organizações");
+      setError(err?.message || tr("Falha ao carregar organizações", "Failed to load organizations"));
     } finally {
       setLoading(false);
     }
@@ -114,13 +117,13 @@ export default function Organizations() {
       });
       const data = await res.json();
       if (!res.ok)
-        throw new Error(data?.error || "Falha ao criar organização");
+        throw new Error(data?.error || tr("Falha ao criar organização", "Failed to create organization"));
       setCreateDialogOpen(false);
       setNewOrgName("");
       setNewOrgDesc("");
       await loadOrgs();
     } catch (err: any) {
-      setError(err?.message || "Falha ao criar organização");
+      setError(err?.message || tr("Falha ao criar organização", "Failed to create organization"));
     } finally {
       setCreating(false);
     }
@@ -130,47 +133,47 @@ export default function Organizations() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Organizações</h1>
+          <h1 className="text-2xl font-semibold">{tr("Organizações", "Organizations")}</h1>
           <p className="text-sm text-muted-foreground">
-            Gerir organizações e membros da equipa.
+            {tr("Gerir organizações e membros da equipa.", "Manage organizations and team members.")}
           </p>
         </div>
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="w-4 h-4 mr-2" />
-              Criar Organização
+              {tr("Criar Organização", "Create Organization")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Criar Organização</DialogTitle>
+              <DialogTitle>{tr("Criar Organização", "Create Organization")}</DialogTitle>
               <DialogDescription>
-                Crie uma nova organização para gerir dispositivos e equipa.
+                {tr("Crie uma nova organização para gerir dispositivos e equipa.", "Create a new organization to manage devices and team.")}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={createOrg} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Nome</label>
+                <label className="text-sm font-medium">{tr("Nome", "Name")}</label>
                 <Input
                   value={newOrgName}
                   onChange={(e: any) => setNewOrgName(e.target.value)}
-                  placeholder="Minha Organização"
+                  placeholder={tr("Minha Organização", "My Organization")}
                   required
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Descrição (opcional)
+                  {tr("Descrição (opcional)", "Description (optional)")}
                 </label>
                 <Input
                   value={newOrgDesc}
                   onChange={(e: any) => setNewOrgDesc(e.target.value)}
-                  placeholder="Uma breve descrição..."
+                  placeholder={tr("Uma breve descrição...", "A short description...")}
                 />
               </div>
               <Button type="submit" className="w-full" disabled={creating}>
-                {creating ? "A criar..." : "Criar Organização"}
+                {creating ? tr("A criar...", "Creating...") : tr("Criar Organização", "Create Organization")}
               </Button>
             </form>
           </DialogContent>
@@ -180,15 +183,15 @@ export default function Organizations() {
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       {loading ? (
-        <div className="text-sm text-muted-foreground">A carregar...</div>
+        <div className="text-sm text-muted-foreground">{tr("A carregar...", "Loading...")}</div>
       ) : orgs.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-muted-foreground">
-              Ainda não pertence a nenhuma organização.
+              {tr("Ainda não pertence a nenhuma organização.", "You don't belong to any organization yet.")}
             </p>
             <p className="text-sm text-muted-foreground mt-2">
-              Crie uma ou peça um link de convite.
+              {tr("Crie uma ou peça um link de convite.", "Create one or request an invite link.")}
             </p>
           </CardContent>
         </Card>
@@ -210,6 +213,8 @@ interface OrgCardProps {
 }
 
 function OrgCard({ org, onUpdate }: OrgCardProps) {
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [manageDialogOpen, setManageDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("members");
   const [members, setMembers] = useState<Member[]>([]);
@@ -365,11 +370,11 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
   const getRoleLabel = (role: string) => {
     switch (role) {
       case "owner":
-        return "Proprietário";
+        return tr("Proprietário", "Owner");
       case "admin":
-        return "Admin";
+        return tr("Admin", "Admin");
       default:
-        return "Membro";
+        return tr("Membro", "Member");
     }
   };
 
@@ -394,32 +399,32 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="w-full">
                 <Users className="w-4 h-4 mr-2" />
-                Gerir Equipa
+                {tr("Gerir Equipa", "Manage Team")}
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>Gerir {org.name}</DialogTitle>
+                <DialogTitle>{tr("Gerir", "Manage")} {org.name}</DialogTitle>
                 <DialogDescription>
-                  Gerir membros e convites da organização.
+                  {tr("Gerir membros e convites da organização.", "Manage members and organization invites.")}
                 </DialogDescription>
               </DialogHeader>
               
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="members">
-                    Membros ({members.length})
+                    {tr("Membros", "Members")} ({members.length})
                   </TabsTrigger>
                   <TabsTrigger value="invites">
-                    Convites ({invites.filter(i => !i.usedAt).length})
+                    {tr("Convites", "Invites")} ({invites.filter(i => !i.usedAt).length})
                   </TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="members" className="space-y-4">
                   {loadingMembers ? (
-                    <p className="text-sm text-muted-foreground">A carregar...</p>
+                    <p className="text-sm text-muted-foreground">{tr("A carregar...", "Loading...")}</p>
                   ) : members.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Sem membros.</p>
+                    <p className="text-sm text-muted-foreground">{tr("Sem membros.", "No members.")}</p>
                   ) : (
                     <div className="space-y-2 max-h-60 overflow-auto">
                       {members.map((member) => (
@@ -456,7 +461,7 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
                                       onClick={() => updateMemberRole(member.id, "admin")}
                                     >
                                       <Shield className="w-4 h-4 mr-2" />
-                                      Tornar Admin
+                                      {tr("Tornar Admin", "Make Admin")}
                                     </DropdownMenuItem>
                                   )}
                                   {member.role === "admin" && (
@@ -464,7 +469,7 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
                                       onClick={() => updateMemberRole(member.id, "member")}
                                     >
                                       <UserMinus className="w-4 h-4 mr-2" />
-                                      Remover Admin
+                                      {tr("Remover Admin", "Remove Admin")}
                                     </DropdownMenuItem>
                                   )}
                                   <DropdownMenuItem
@@ -472,7 +477,7 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
                                     onClick={() => removeMember(member.id)}
                                   >
                                     <Trash2 className="w-4 h-4 mr-2" />
-                                    Remover
+                                    {tr("Remover", "Remove")}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -491,20 +496,20 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="member">Membro</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="member">{tr("Membro", "Member")}</SelectItem>
+                        <SelectItem value="admin">{tr("Admin", "Admin")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button onClick={createInvite} disabled={creatingInvite} className="flex-1">
                       <Plus className="w-4 h-4 mr-2" />
-                      {creatingInvite ? "A criar..." : "Criar Link"}
+                      {creatingInvite ? tr("A criar...", "Creating...") : tr("Criar Link", "Create Link")}
                     </Button>
                   </div>
 
                   {loadingInvites ? (
-                    <p className="text-sm text-muted-foreground">A carregar...</p>
+                    <p className="text-sm text-muted-foreground">{tr("A carregar...", "Loading...")}</p>
                   ) : invites.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Sem convites.</p>
+                    <p className="text-sm text-muted-foreground">{tr("Sem convites.", "No invites.")}</p>
                   ) : (
                     <div className="space-y-2 max-h-60 overflow-auto">
                       {invites.map((invite) => (
@@ -522,7 +527,7 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
                               </Badge>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {invite.usedAt ? "Usado" : "Ativo"}
+                              {invite.usedAt ? tr("Usado", "Used") : tr("Ativo", "Active")}
                             </p>
                           </div>
                           <div className="flex items-center gap-1">

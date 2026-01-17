@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 type SearchResult = {
   type: "store" | "space" | "light" | "tv";
@@ -40,6 +41,8 @@ type SearchResult = {
 export default function Search() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
@@ -104,7 +107,7 @@ export default function Search() {
         id: light.id,
         name: light.name,
         parentName: `${getLocationCompanyName(light.locationId)} > ${getLocationName(light.locationId)}`,
-        status: light.isOn ? "Ligada" : "Desligada",
+        status: light.isOn ? tr("Ligada", "On") : tr("Desligada", "Off"),
         href: `/location/${light.locationId}`,
       });
     });
@@ -116,7 +119,7 @@ export default function Search() {
         id: tv.id,
         name: tv.name,
         parentName: `${getLocationCompanyName(tv.locationId)} > ${getLocationName(tv.locationId)}`,
-        status: tv.status === "online" ? "Online" : "Offline",
+        status: tv.status === "online" ? tr("Online", "Online") : tr("Offline", "Offline"),
         href: `/location/${tv.locationId}`,
       });
     });
@@ -205,7 +208,7 @@ export default function Search() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold">Pesquisar</h1>
+        <h1 className="text-2xl font-semibold">{tr("Pesquisar", "Search")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Encontre lojas, espaços e dispositivos rapidamente
         </p>
@@ -216,7 +219,7 @@ export default function Search() {
         <div className="relative flex-1">
           <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <Input
-            placeholder="Pesquisar por nome, descrição ou localização..."
+            placeholder={tr("Pesquisar por nome, descrição ou localização...", "Search by name, description, or location...")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-11 h-12 text-base"
@@ -226,14 +229,14 @@ export default function Search() {
         <Select value={filterType} onValueChange={setFilterType}>
           <SelectTrigger className="w-full sm:w-[180px] h-12">
             <Filter className="w-4 h-4 mr-2" />
-            <SelectValue placeholder="Filtrar por tipo" />
+            <SelectValue placeholder={tr("Filtrar por tipo", "Filter by type")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="store">Lojas</SelectItem>
-            <SelectItem value="space">Espaços</SelectItem>
-            <SelectItem value="light">Luzes</SelectItem>
-            <SelectItem value="tv">Televisões</SelectItem>
+            <SelectItem value="all">{tr("Todos", "All")}</SelectItem>
+            <SelectItem value="store">{tr("Lojas", "Stores")}</SelectItem>
+            <SelectItem value="space">{tr("Espaços", "Spaces")}</SelectItem>
+            <SelectItem value="light">{tr("Luzes", "Lights")}</SelectItem>
+            <SelectItem value="tv">{tr("Televisões", "TVs")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -248,7 +251,7 @@ export default function Search() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Lojas</p>
+                  <p className="text-sm text-muted-foreground">{tr("Lojas", "Stores")}</p>
                   <p className="text-2xl font-bold">{stats.stores}</p>
                 </div>
                 <Store className="w-8 h-8 text-primary/20" />
@@ -262,7 +265,7 @@ export default function Search() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Espaços</p>
+                  <p className="text-sm text-muted-foreground">{tr("Espaços", "Spaces")}</p>
                   <p className="text-2xl font-bold">{stats.spaces}</p>
                 </div>
                 <MapPin className="w-8 h-8 text-blue-500/20" />
@@ -276,7 +279,7 @@ export default function Search() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Luzes</p>
+                  <p className="text-sm text-muted-foreground">{tr("Luzes", "Lights")}</p>
                   <p className="text-2xl font-bold">{stats.lights}</p>
                 </div>
                 <Lightbulb className="w-8 h-8 text-yellow-500/20" />
@@ -290,7 +293,7 @@ export default function Search() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Televisões</p>
+                  <p className="text-sm text-muted-foreground">{tr("Televisões", "TVs")}</p>
                   <p className="text-2xl font-bold">{stats.tvs}</p>
                 </div>
                 <Monitor className="w-8 h-8 text-purple-500/20" />
@@ -325,7 +328,7 @@ export default function Search() {
               <CardContent className="py-16 text-center">
                 <SearchIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium mb-2">
-                  Nenhum resultado encontrado
+                  {tr("Nenhum resultado encontrado", "No results found")}
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   Tente uma pesquisa diferente ou altere os filtros

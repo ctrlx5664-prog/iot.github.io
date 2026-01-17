@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { apiUrl, getToken, clearToken } from "@/lib/auth";
 import { Loader2, User, Lock, Eye, EyeOff, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "@/lib/i18n";
 
 interface UserProfile {
   id: string;
@@ -23,6 +24,8 @@ interface UserProfile {
 export default function Profile() {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const { language } = useTranslation() as { language: "pt" | "en" };
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +56,7 @@ export default function Profile() {
       const res = await fetch(apiUrl("/api/auth/me"), {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("Falha ao carregar perfil");
+      if (!res.ok) throw new Error(tr("Falha ao carregar perfil", "Failed to load profile"));
       const data = await res.json();
       setUser(data.user);
       setUsername(data.user.username);
@@ -82,8 +85,8 @@ export default function Profile() {
         body: JSON.stringify({ username, email }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha ao atualizar perfil");
-      setSuccess("Perfil atualizado com sucesso!");
+      if (!res.ok) throw new Error(data.error || tr("Falha ao atualizar perfil", "Failed to update profile"));
+      setSuccess(tr("Perfil atualizado com sucesso!", "Profile updated successfully!"));
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     } catch (err: any) {
       setError(err?.message);
@@ -98,12 +101,12 @@ export default function Profile() {
     setPasswordSuccess(null);
 
     if (newPassword !== confirmPassword) {
-      setPasswordError("As palavras-passe não coincidem");
+      setPasswordError(tr("As palavras-passe não coincidem", "Passwords do not match"));
       return;
     }
 
     if (newPassword.length < 6) {
-      setPasswordError("A palavra-passe deve ter pelo menos 6 caracteres");
+      setPasswordError(tr("A palavra-passe deve ter pelo menos 6 caracteres", "Password must be at least 6 characters"));
       return;
     }
 
@@ -120,8 +123,8 @@ export default function Profile() {
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha ao alterar palavra-passe");
-      setPasswordSuccess("Palavra-passe alterada com sucesso!");
+      if (!res.ok) throw new Error(data.error || tr("Falha ao alterar palavra-passe", "Failed to change password"));
+      setPasswordSuccess(tr("Palavra-passe alterada com sucesso!", "Password changed successfully!"));
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -151,9 +154,9 @@ export default function Profile() {
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Perfil</h1>
+        <h1 className="text-2xl font-semibold">{tr("Perfil", "Profile")}</h1>
         <p className="text-sm text-muted-foreground">
-          Gerir as suas informações pessoais e segurança.
+          {tr("Gerir as suas informações pessoais e segurança.", "Manage your personal information and security.")}
         </p>
       </div>
 
@@ -177,22 +180,22 @@ export default function Profile() {
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <User className="w-4 h-4" />
-                Nome de utilizador
+                {tr("Nome de utilizador", "Username")}
               </label>
               <Input
                 value={username}
                 onChange={(e: any) => setUsername(e.target.value)}
-                placeholder="utilizador"
+                placeholder={tr("utilizador", "username")}
                 required
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email</label>
+              <label className="text-sm font-medium">{tr("Email", "Email")}</label>
               <Input
                 type="email"
                 value={email}
                 onChange={(e: any) => setEmail(e.target.value)}
-                placeholder="email@exemplo.com"
+                placeholder={tr("email@exemplo.com", "email@example.com")}
                 required
               />
             </div>
@@ -204,10 +207,10 @@ export default function Profile() {
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  A guardar...
+                  {tr("A guardar...", "Saving...")}
                 </>
               ) : (
-                "Guardar Alterações"
+                tr("Guardar Alterações", "Save Changes")
               )}
             </Button>
           </form>
@@ -219,16 +222,16 @@ export default function Profile() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Lock className="w-5 h-5" />
-            Alterar Palavra-passe
+            {tr("Alterar Palavra-passe", "Change Password")}
           </CardTitle>
           <CardDescription>
-            Atualize a sua palavra-passe para manter a conta segura.
+            {tr("Atualize a sua palavra-passe para manter a conta segura.", "Update your password to keep your account secure.")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleChangePassword} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Palavra-passe atual</label>
+              <label className="text-sm font-medium">{tr("Palavra-passe atual", "Current password")}</label>
               <div className="relative">
                 <Input
                   type={showCurrentPassword ? "text" : "password"}
@@ -251,7 +254,7 @@ export default function Profile() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nova palavra-passe</label>
+              <label className="text-sm font-medium">{tr("Nova palavra-passe", "New password")}</label>
               <div className="relative">
                 <Input
                   type={showNewPassword ? "text" : "password"}
@@ -274,7 +277,7 @@ export default function Profile() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Confirmar nova palavra-passe</label>
+              <label className="text-sm font-medium">{tr("Confirmar nova palavra-passe", "Confirm new password")}</label>
               <Input
                 type="password"
                 value={confirmPassword}
@@ -291,10 +294,10 @@ export default function Profile() {
               {changingPassword ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  A alterar...
+                  {tr("A alterar...", "Updating...")}
                 </>
               ) : (
-                "Alterar Palavra-passe"
+                tr("Alterar Palavra-passe", "Change Password")
               )}
             </Button>
           </form>
@@ -304,15 +307,15 @@ export default function Profile() {
       {/* Logout Card */}
       <Card className="border-red-200 dark:border-red-900">
         <CardHeader>
-          <CardTitle className="text-red-600">Terminar Sessão</CardTitle>
+          <CardTitle className="text-red-600">{tr("Terminar Sessão", "Log Out")}</CardTitle>
           <CardDescription>
-            Sair da sua conta em todos os dispositivos.
+            {tr("Sair da sua conta em todos os dispositivos.", "Sign out of your account on all devices.")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="destructive" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" />
-            Terminar Sessão
+            {tr("Terminar Sessão", "Log Out")}
           </Button>
         </CardContent>
       </Card>

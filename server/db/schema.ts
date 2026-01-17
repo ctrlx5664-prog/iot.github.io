@@ -106,4 +106,68 @@ export const tvs = pgTable("tvs", {
   status: text("status").notNull().default("online"),
 });
 
+// User-Store permissions - controls which stores a user can access
+export const userStorePermissions = pgTable("user_store_permissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  companyId: uuid("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  canView: boolean("can_view").notNull().default(true),
+  canEdit: boolean("can_edit").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Activity logs - tracks all user actions
+export const activityLogs = pgTable("activity_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "set null" }),
+  organizationId: uuid("organization_id")
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  action: text("action").notNull(), // "light_on", "light_off", "schedule_created", "schedule_deleted", etc.
+  entityType: text("entity_type").notNull(), // "light", "tv", "schedule", "location", etc.
+  entityId: text("entity_id"), // ID of the affected entity
+  entityName: text("entity_name"), // Name of the affected entity for display
+  details: text("details"), // JSON string with additional details
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Energy usage data (mock for now, will be real data later)
+export const energyUsage = pgTable("energy_usage", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  locationId: uuid("location_id")
+    .references(() => locations.id, { onDelete: "cascade" }),
+  lightId: uuid("light_id")
+    .references(() => lights.id, { onDelete: "cascade" }),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull().defaultNow(),
+  kwh: integer("kwh").notNull().default(0), // kilowatt-hours * 1000 for precision
+  brightness: integer("brightness"), // brightness level at the time
+  isOn: boolean("is_on"), // whether light was on
+});
+
+// Schedules for lights/devices
+export const schedules = pgTable("schedules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id")
+    .references(() => locations.id, { onDelete: "cascade" }),
+  lightId: uuid("light_id")
+    .references(() => lights.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  action: text("action").notNull(), // "turn_on", "turn_off", "set_brightness"
+  actionValue: text("action_value"), // e.g., brightness level
+  cronExpression: text("cron_expression"), // for recurring schedules
+  scheduledTime: timestamp("scheduled_time", { withTimezone: true }), // for one-time schedules
+  isActive: boolean("is_active").notNull().default(true),
+  createdById: uuid("created_by_id")
+    .references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 

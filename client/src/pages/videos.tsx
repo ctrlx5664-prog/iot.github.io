@@ -17,9 +17,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Video } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "@/lib/i18n";
 
 export default function Videos() {
   const { toast } = useToast();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -36,15 +39,15 @@ export default function Videos() {
       setIsDialogOpen(false);
       setIsUploading(false);
       toast({
-        title: "Success",
-        description: "Video added successfully",
+        title: tr("Sucesso", "Success"),
+        description: tr("Vídeo adicionado com sucesso", "Video added successfully"),
       });
     },
     onError: () => {
       setIsUploading(false);
       toast({
-        title: "Error",
-        description: "Failed to add video",
+        title: tr("Erro", "Error"),
+        description: tr("Falha ao adicionar vídeo", "Failed to add video"),
         variant: "destructive",
       });
     },
@@ -70,39 +73,39 @@ export default function Videos() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground" data-testid="text-page-title">
-            Video Library
+            {tr("Biblioteca de Vídeos", "Video Library")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage videos for your TV displays
+            {tr("Gerir vídeos para as suas TVs", "Manage videos for your TV displays")}
           </p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-video">
               <Upload className="w-4 h-4 mr-2" />
-              Add Video
+              {tr("Adicionar Vídeo", "Add Video")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Video</DialogTitle>
+              <DialogTitle>{tr("Adicionar Vídeo", "Add Video")}</DialogTitle>
               <DialogDescription>
-                Add a video to your library for use on TV displays
+                {tr("Adicione um vídeo à biblioteca para usar nas TVs", "Add a video to your library for use on TV displays")}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="video-name">Video Name *</Label>
+                <Label htmlFor="video-name">{tr("Nome do Vídeo *", "Video Name *")}</Label>
                 <Input
                   id="video-name"
                   name="name"
-                  placeholder="e.g., Welcome Message"
+                  placeholder={tr("ex: Mensagem de Boas-Vindas", "e.g., Welcome Message")}
                   required
                   data-testid="input-video-name"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="video-url">Video URL *</Label>
+                <Label htmlFor="video-url">{tr("URL do Vídeo *", "Video URL *")}</Label>
                 <Input
                   id="video-url"
                   name="url"
@@ -112,17 +115,17 @@ export default function Videos() {
                   data-testid="input-video-url"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Direct link to video file (MP4, WebM, etc.)
+                  {tr("Link direto para o ficheiro de vídeo (MP4, WebM, etc.)", "Direct link to video file (MP4, WebM, etc.)")}
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="video-duration">Duration (seconds)</Label>
+                <Label htmlFor="video-duration">{tr("Duração (segundos)", "Duration (seconds)")}</Label>
                 <Input
                   id="video-duration"
                   name="duration"
                   type="number"
                   min="1"
-                  placeholder="e.g., 60"
+                  placeholder={tr("ex: 60", "e.g., 60")}
                   data-testid="input-video-duration"
                 />
               </div>
@@ -133,10 +136,10 @@ export default function Videos() {
                   onClick={() => setIsDialogOpen(false)}
                   disabled={isUploading}
                 >
-                  Cancel
+                  {tr("Cancelar", "Cancel")}
                 </Button>
                 <Button type="submit" disabled={isUploading} data-testid="button-submit-video">
-                  {isUploading ? "Adding..." : "Add Video"}
+                  {isUploading ? tr("A adicionar...", "Adding...") : tr("Adicionar Vídeo", "Add Video")}
                 </Button>
               </div>
             </form>
@@ -148,13 +151,13 @@ export default function Videos() {
         <Card>
           <CardContent className="py-16 text-center">
             <Upload className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No videos yet</h3>
+            <h3 className="text-lg font-medium mb-2">{tr("Ainda sem vídeos", "No videos yet")}</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Add your first video to start displaying content on TVs
+              {tr("Adicione o seu primeiro vídeo para começar a mostrar conteúdo nas TVs", "Add your first video to start displaying content on TVs")}
             </p>
             <Button onClick={() => setIsDialogOpen(true)} data-testid="button-add-first-video">
               <Upload className="w-4 h-4 mr-2" />
-              Add Video
+              {tr("Adicionar Vídeo", "Add Video")}
             </Button>
           </CardContent>
         </Card>
@@ -185,7 +188,7 @@ export default function Videos() {
                   </div>
                 )}
                 <div className="text-xs text-muted-foreground">
-                  Added {new Date(video.uploadedAt).toLocaleDateString()}
+                  {tr("Adicionado", "Added")} {new Date(video.uploadedAt).toLocaleDateString()}
                 </div>
               </CardContent>
             </Card>

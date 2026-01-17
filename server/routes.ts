@@ -16,7 +16,7 @@ import {
 import { ZodError } from "zod";
 import crypto, { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { getDb } from "./db/client";
-import { users, organizations, userOrganizations, organizationInvites, verificationCodes } from "./db/schema";
+import { users, organizations, userOrganizations, organizationInvites, verificationCodes, userStorePermissions, companies } from "./db/schema";
 import { eq, and, gt } from "drizzle-orm";
 import { generateVerificationCode, sendVerificationCodeEmail } from "./email";
 
@@ -646,13 +646,26 @@ export async function registerRoutes(
       const memberDetails = await Promise.all(
         members.map(async (m: any) => {
           const [u] = await db.select().from(users).where(eq(users.id, m.userId));
+          
+          // Get store permissions for this user
+          const permissions = await db.select({
+            companyId: userStorePermissions.companyId,
+            companyName: companies.name,
+            canView: userStorePermissions.canView,
+            canEdit: userStorePermissions.canEdit,
+          })
+            .from(userStorePermissions)
+            .innerJoin(companies, eq(userStorePermissions.companyId, companies.id))
+            .where(eq(userStorePermissions.userId, m.userId));
+          
           return { 
             id: m.id, 
-            userId: m.userId, 
+            oderId: m.userId, 
             username: u?.username, 
             email: u?.email,
             role: m.role, 
-            invitedAt: m.invitedAt 
+            invitedAt: m.invitedAt,
+            storePermissions: permissions,
           };
         })
       );
@@ -818,6 +831,169 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: "Failed to delete invite" });
+    }
+  });
+
+  // Create user directly (admin only) - creates user and adds to organization with store permissions
+  app.post("/api/organizations/:id/users", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const adminUser = await findUser(req.user?.sub);
+      if (!adminUser) return res.status(401).json({ error: "User not found" });
+      
+      // Check if admin/owner
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, adminUser.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+        return res.status(403).json({ error: "Apenas proprietários e administradores podem criar utilizadores" });
+      }
+      
+      const { username, email, password, role = "member", storePermissions = [] } = req.body || {};
+      
+      if (!username || !email || !password) {
+        return res.status(400).json({ error: "Username, email e password são obrigatórios" });
+      }
+      
+      // Validate email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Email inválido" });
+      }
+      
+      // Check if username exists
+      const existingUsername = await findUser(username);
+      if (existingUsername) {
+        return res.status(409).json({ error: "Nome de utilizador já existe" });
+      }
+      
+      // Check if email exists
+      const [existingEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      if (existingEmail) {
+        return res.status(409).json({ error: "Email já registado" });
+      }
+      
+      const passwordHash = hashPassword(password);
+      
+      // Create user (already verified since admin is creating)
+      const [newUser] = await db.insert(users).values({
+        username,
+        email,
+        passwordHash,
+        emailVerified: true, // Admin-created users are auto-verified
+      }).returning();
+      
+      // Add to organization
+      await db.insert(userOrganizations).values({
+        userId: newUser.id,
+        organizationId: req.params.id,
+        role,
+      });
+      
+      // Add store permissions
+      if (storePermissions && Array.isArray(storePermissions)) {
+        for (const perm of storePermissions) {
+          if (perm.companyId && (perm.canView || perm.canEdit)) {
+            await db.insert(userStorePermissions).values({
+              userId: newUser.id,
+              companyId: perm.companyId,
+              canView: perm.canView ?? true,
+              canEdit: perm.canEdit ?? false,
+            });
+          }
+        }
+      }
+      
+      res.status(201).json({
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        role,
+      });
+    } catch (error: any) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ error: "Falha ao criar utilizador" });
+    }
+  });
+
+  // Get user's store permissions
+  app.get("/api/organizations/:id/users/:userId/permissions", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const adminUser = await findUser(req.user?.sub);
+      if (!adminUser) return res.status(401).json({ error: "User not found" });
+      
+      // Check if admin/owner
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, adminUser.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+        return res.status(403).json({ error: "Sem permissão" });
+      }
+      
+      const permissions = await db.select({
+        id: userStorePermissions.id,
+        companyId: userStorePermissions.companyId,
+        companyName: companies.name,
+        canView: userStorePermissions.canView,
+        canEdit: userStorePermissions.canEdit,
+      })
+        .from(userStorePermissions)
+        .innerJoin(companies, eq(userStorePermissions.companyId, companies.id))
+        .where(eq(userStorePermissions.userId, req.params.userId));
+      
+      res.json(permissions);
+    } catch (error: any) {
+      res.status(500).json({ error: "Falha ao obter permissões" });
+    }
+  });
+
+  // Update user's store permissions
+  app.put("/api/organizations/:id/users/:userId/permissions", async (req: any, res) => {
+    try {
+      const db = await getDb();
+      const adminUser = await findUser(req.user?.sub);
+      if (!adminUser) return res.status(401).json({ error: "User not found" });
+      
+      // Check if admin/owner
+      const [membership] = await db.select().from(userOrganizations)
+        .where(and(eq(userOrganizations.userId, adminUser.id), eq(userOrganizations.organizationId, req.params.id)));
+      
+      if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+        return res.status(403).json({ error: "Sem permissão" });
+      }
+      
+      const { permissions = [] } = req.body || {};
+      
+      // Get all stores for this organization
+      const orgStores = await db.select().from(companies)
+        .where(eq(companies.organizationId, req.params.id));
+      const orgStoreIds = new Set(orgStores.map(s => s.id));
+      
+      // Delete existing permissions for stores in this org
+      for (const storeId of orgStoreIds) {
+        await db.delete(userStorePermissions)
+          .where(and(
+            eq(userStorePermissions.userId, req.params.userId),
+            eq(userStorePermissions.companyId, storeId)
+          ));
+      }
+      
+      // Add new permissions
+      for (const perm of permissions) {
+        if (perm.companyId && orgStoreIds.has(perm.companyId) && (perm.canView || perm.canEdit)) {
+          await db.insert(userStorePermissions).values({
+            userId: req.params.userId,
+            companyId: perm.companyId,
+            canView: perm.canView ?? true,
+            canEdit: perm.canEdit ?? false,
+          });
+        }
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Falha ao atualizar permissões" });
     }
   });
 

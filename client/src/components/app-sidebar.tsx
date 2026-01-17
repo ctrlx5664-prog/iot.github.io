@@ -20,6 +20,8 @@ import {
   FileText,
   UserCog,
   Zap,
+  BarChart3,
+  History,
 } from "lucide-react";
 import {
   Sidebar,
@@ -54,6 +56,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState } from "react";
 import { getToken, apiUrl, clearToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/lib/i18n";
 
 interface UserInfo {
   id: string;
@@ -65,9 +68,11 @@ interface UserInfo {
 export function AppSidebar() {
   const [location, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const { t, language } = useTranslation();
   const [lightControlOpen, setLightControlOpen] = useState(true);
   const [adminOpen, setAdminOpen] = useState(false);
   const [storesOpen, setStoresOpen] = useState(true);
+  const [ecoOpen, setEcoOpen] = useState(false);
 
   // Get current user info
   const { data: userData } = useQuery<{ user: UserInfo }>({
@@ -138,7 +143,7 @@ export function AppSidebar() {
             <h2 className="text-base font-bold bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent tracking-tight">
               CtrlX
             </h2>
-            <p className="text-xs text-muted-foreground">Painel de Controlo</p>
+            <p className="text-xs text-muted-foreground">{t("nav.controlPanel")}</p>
           </div>
         </div>
       </SidebarHeader>
@@ -147,7 +152,7 @@ export function AppSidebar() {
         {/* Main Navigation */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
-            Navegação
+            {language === "pt" ? "Navegação" : "Navigation"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -155,7 +160,7 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild isActive={location === "/dashboard"}>
                   <Link href="/dashboard" data-testid="link-dashboard">
                     <Home className="w-4 h-4" />
-                    <span>Dashboard</span>
+                    <span>{t("nav.dashboard")}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -163,7 +168,7 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild isActive={location === "/search"}>
                   <Link href="/search" data-testid="link-search">
                     <Search className="w-4 h-4" />
-                    <span>Pesquisar</span>
+                    <span>{t("nav.search")}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -178,7 +183,7 @@ export function AppSidebar() {
               <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-foreground flex items-center justify-between w-full pr-2">
                 <span className="flex items-center gap-2">
                   <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
-                  Controlo de Luzes
+                  {t("nav.lightControl")}
                 </span>
                 <ChevronDown
                   className={cn(
@@ -197,7 +202,7 @@ export function AppSidebar() {
                       <SidebarMenuButton asChild isActive={location === "/ha"}>
                         <Link href="/ha" data-testid="link-home-assistant">
                           <LayoutDashboard className="w-4 h-4" />
-                          <span>Dashboard de Controlo</span>
+                          <span>{t("dashboard.title")}</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -210,7 +215,7 @@ export function AppSidebar() {
                         <SidebarMenuButton className="w-full justify-between">
                           <div className="flex items-center gap-2">
                             <Store className="w-4 h-4" />
-                            <span>Lojas</span>
+                            <span>{t("nav.stores")}</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <Badge variant="secondary" className="text-xs h-5 px-1.5">
@@ -235,7 +240,7 @@ export function AppSidebar() {
                             >
                               <Link href="/stores" data-testid="link-stores">
                                 <Building2 className="w-3.5 h-3.5" />
-                                <span className="text-sm">Todas as Lojas</span>
+                                <span className="text-sm">{t("nav.allStores")}</span>
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
@@ -247,7 +252,7 @@ export function AppSidebar() {
                             >
                               <Link href="/companies" data-testid="link-companies">
                                 <MapPin className="w-3.5 h-3.5" />
-                                <span className="text-sm">Espaços</span>
+                                <span className="text-sm">{t("nav.spaces")}</span>
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
@@ -266,7 +271,7 @@ export function AppSidebar() {
           <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
             <span className="flex items-center gap-2">
               <Tv className="w-3.5 h-3.5 text-blue-500" />
-              Media
+              {t("nav.media")}
             </span>
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -275,12 +280,46 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild isActive={location === "/videos"}>
                   <Link href="/videos" data-testid="link-videos">
                     <Monitor className="w-4 h-4" />
-                    <span>Vídeos & TVs</span>
+                    <span>{t("nav.videos")} & {t("nav.tvs")}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Eco Management Section */}
+        <SidebarGroup>
+          <Collapsible open={ecoOpen} onOpenChange={setEcoOpen}>
+            <CollapsibleTrigger asChild>
+              <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-foreground flex items-center justify-between w-full pr-2">
+                <span className="flex items-center gap-2">
+                  <Leaf className="w-3.5 h-3.5 text-green-500" />
+                  {t("nav.ecoManagement")}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 transition-transform",
+                    !ecoOpen && "-rotate-90"
+                  )}
+                />
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/energy"}>
+                      <Link href="/energy" data-testid="link-energy">
+                        <BarChart3 className="w-4 h-4" />
+                        <span>{t("nav.energyUsage")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </Collapsible>
         </SidebarGroup>
 
         {/* Administration Section */}
@@ -290,7 +329,7 @@ export function AppSidebar() {
               <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-foreground flex items-center justify-between w-full pr-2">
                 <span className="flex items-center gap-2">
                   <UserCog className="w-3.5 h-3.5 text-purple-500" />
-                  Administração
+                  {t("nav.administration")}
                 </span>
                 <ChevronDown
                   className={cn(
@@ -310,7 +349,7 @@ export function AppSidebar() {
                     >
                       <Link href="/organizations" data-testid="link-organizations">
                         <Building2 className="w-4 h-4" />
-                        <span>Organizações</span>
+                        <span>{t("nav.organizations")}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -318,7 +357,15 @@ export function AppSidebar() {
                     <SidebarMenuButton asChild isActive={location === "/members"}>
                       <Link href="/members" data-testid="link-members">
                         <Users className="w-4 h-4" />
-                        <span>Membros</span>
+                        <span>{t("nav.members")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/logs"}>
+                      <Link href="/logs" data-testid="link-logs">
+                        <History className="w-4 h-4" />
+                        <span>{t("nav.activityLogs")}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -332,7 +379,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <div className="flex items-center justify-between px-2">
             <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
-              Lojas Recentes
+              {t("nav.recentStores")}
             </SidebarGroupLabel>
             <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
               <Link href="/stores" data-testid="button-add-store">
@@ -344,7 +391,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {companies.length === 0 && (
                 <div className="px-2 py-4 text-xs text-muted-foreground">
-                  Nenhuma loja ainda
+                  {language === "pt" ? "Nenhuma loja ainda" : "No stores yet"}
                 </div>
               )}
               {companies.slice(0, 5).map((company) => (
@@ -360,7 +407,9 @@ export function AppSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild className="text-muted-foreground">
                     <Link href="/stores">
-                      <span className="text-xs">Ver todas ({companies.length})</span>
+                      <span className="text-xs">
+                        {language === "pt" ? "Ver todas" : "View all"} ({companies.length})
+                      </span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -374,7 +423,7 @@ export function AppSidebar() {
         {/* Device Stats */}
         <div className="px-4 py-2 space-y-1">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Dispositivos</span>
+            <span className="text-muted-foreground">{t("nav.devices")}</span>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -416,13 +465,13 @@ export function AppSidebar() {
               <DropdownMenuItem asChild>
                 <Link href="/profile" className="cursor-pointer">
                   <User className="w-4 h-4 mr-2" />
-                  Perfil
+                  {t("auth.profile")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/settings" className="cursor-pointer">
                   <Settings className="w-4 h-4 mr-2" />
-                  Definições
+                  {t("auth.settings")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -431,7 +480,7 @@ export function AppSidebar() {
                 className="text-red-600 cursor-pointer"
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                Terminar Sessão
+                {t("auth.logout")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

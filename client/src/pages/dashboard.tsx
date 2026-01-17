@@ -10,8 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Building2, Lightbulb, Monitor, Check } from "lucide-react";
 import type { Company, Location, Light, Tv } from "@shared/schema";
 import { Link } from "wouter";
+import { useTranslation } from "@/lib/i18n";
 
 export default function Dashboard() {
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
+
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
   });
@@ -34,36 +38,43 @@ export default function Dashboard() {
 
   const stats = [
     {
-      title: "Companies",
+      title: tr("Lojas", "Stores"),
       value: companies.length,
       icon: Building2,
-      description: `${locations.length} total locations`,
+      description: tr(
+        `${locations.length} espaços no total`,
+        `${locations.length} total locations`
+      ),
       color: "text-primary",
     },
     {
-      title: "Smart Lights",
+      title: tr("Luzes Inteligentes", "Smart Lights"),
       value: lights.length,
       icon: Lightbulb,
-      description: `${activeLights} currently on`,
+      description: tr(
+        `${activeLights} ligadas agora`,
+        `${activeLights} currently on`
+      ),
       color: "text-yellow-500",
     },
     {
-      title: "TV Displays",
+      title: tr("Televisões", "TV Displays"),
       value: tvs.length,
       icon: Monitor,
-      description: `${onlineTvs} online`,
+      description: tr(`${onlineTvs} online`, `${onlineTvs} online`),
       color: "text-blue-500",
     },
     {
-      title: "Device Health",
+      title: tr("Estado dos Dispositivos", "Device Health"),
       value: `${Math.round(
         ((onlineLights + onlineTvs) / Math.max(lights.length + tvs.length, 1)) *
           100
       )}%`,
       icon: Check,
-      description: `${onlineLights + onlineTvs}/${
-        lights.length + tvs.length
-      } devices online`,
+      description: tr(
+        `${onlineLights + onlineTvs}/${lights.length + tvs.length} dispositivos online`,
+        `${onlineLights + onlineTvs}/${lights.length + tvs.length} devices online`
+      ),
       color: "text-green-500",
     },
   ];
@@ -75,10 +86,13 @@ export default function Dashboard() {
           className="text-2xl font-semibold text-foreground"
           data-testid="text-page-title"
         >
-          Dashboard
+          {tr("Dashboard", "Dashboard")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Overview of all IoT devices across your locations
+          {tr(
+            "Visão geral de todos os dispositivos nas suas localizações",
+            "Overview of all IoT devices across your locations"
+          )}
         </p>
       </div>
 
@@ -117,24 +131,30 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-medium">
-              Recent Locations
+              {tr("Localizações Recentes", "Recent Locations")}
             </CardTitle>
             <CardDescription>
-              Quick access to your device locations
+              {tr(
+                "Acesso rápido às localizações dos dispositivos",
+                "Quick access to your device locations"
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {locations.length === 0 ? (
               <div className="py-8 text-center">
                 <p className="text-sm text-muted-foreground">
-                  No locations yet
+                  {tr("Ainda sem localizações", "No locations yet")}
                 </p>
                 <Link href="/companies">
                   <span
                     className="text-sm text-primary hover:underline mt-2 inline-block cursor-pointer"
                     data-testid="link-add-location"
                   >
-                    Add your first company and location
+                    {tr(
+                      "Adicione a sua primeira loja e espaço",
+                      "Add your first company and location"
+                    )}
                   </span>
                 </Link>
               </div>
@@ -166,7 +186,10 @@ export default function Dashboard() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary" className="text-xs">
-                          {locationLights.length + locationTvs.length} devices
+                          {tr(
+                            `${locationLights.length + locationTvs.length} dispositivos`,
+                            `${locationLights.length + locationTvs.length} devices`
+                          )}
                         </Badge>
                       </div>
                     </div>
@@ -179,28 +202,37 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg font-medium">Device Status</CardTitle>
-            <CardDescription>Real-time monitoring</CardDescription>
+            <CardTitle className="text-lg font-medium">
+              {tr("Estado dos Dispositivos", "Device Status")}
+            </CardTitle>
+            <CardDescription>
+              {tr("Monitorização em tempo real", "Real-time monitoring")}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-sm">Online</span>
+                  <span className="text-sm">{tr("Online", "Online")}</span>
                 </div>
                 <span className="text-sm font-medium">
-                  {onlineLights + onlineTvs} devices
+                  {tr(
+                    `${onlineLights + onlineTvs} dispositivos`,
+                    `${onlineLights + onlineTvs} devices`
+                  )}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-red-500" />
-                  <span className="text-sm">Offline</span>
+                  <span className="text-sm">{tr("Offline", "Offline")}</span>
                 </div>
                 <span className="text-sm font-medium">
-                  {lights.length + tvs.length - onlineLights - onlineTvs}{" "}
-                  devices
+                  {tr(
+                    `${lights.length + tvs.length - onlineLights - onlineTvs} dispositivos`,
+                    `${lights.length + tvs.length - onlineLights - onlineTvs} devices`
+                  )}
                 </span>
               </div>
             </div>
@@ -209,7 +241,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Lightbulb className="w-4 h-4 text-yellow-500" />
-                  <span className="text-sm">Lights Active</span>
+                  <span className="text-sm">{tr("Luzes Ativas", "Lights Active")}</span>
                 </div>
                 <span className="text-sm font-medium">
                   {activeLights}/{lights.length}
@@ -218,7 +250,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Monitor className="w-4 h-4 text-blue-500" />
-                  <span className="text-sm">TVs Streaming</span>
+                  <span className="text-sm">{tr("TVs a Reproduzir", "TVs Streaming")}</span>
                 </div>
                 <span className="text-sm font-medium">
                   {tvs.filter((t) => t.currentVideoId).length}/{tvs.length}

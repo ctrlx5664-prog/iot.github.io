@@ -7,6 +7,9 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { I18nProvider } from "@/lib/i18n";
+import { useTranslation } from "@/lib/i18n";
 import { useWebSocket } from "@/hooks/use-websocket";
 import Dashboard from "@/pages/dashboard";
 import Companies from "@/pages/companies";
@@ -23,6 +26,8 @@ import Landing from "@/pages/landing";
 import Stores from "@/pages/stores";
 import Members from "@/pages/members";
 import Search from "@/pages/search";
+import Energy from "@/pages/energy";
+import ActivityLogs from "@/pages/activity-logs";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useEffect, type CSSProperties } from "react";
@@ -40,6 +45,8 @@ function AuthenticatedRoutes() {
       <Route path="/stores" component={Stores} />
       <Route path="/members" component={Members} />
       <Route path="/search" component={Search} />
+      <Route path="/energy" component={Energy} />
+      <Route path="/logs" component={ActivityLogs} />
       <Route path="/location/:id" component={LocationDetail} />
       <Route path="/videos" component={Videos} />
       <Route path="/ha" component={HomeAssistant} />
@@ -72,6 +79,8 @@ function PublicRoutes() {
 
 function AppContent() {
   const token = getToken();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
 
   const style: CSSProperties = {
     "--sidebar-width": "16rem",
@@ -153,9 +162,10 @@ function AppContent() {
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/videos" data-testid="link-videos-header">
                   <Video className="w-4 h-4 mr-2" />
-                  Videos
+                  {tr("Vídeos", "Videos")}
                 </Link>
               </Button>
+              <LanguageSwitcher />
               <ThemeToggle />
             </div>
           </header>
@@ -178,10 +188,12 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark">
-        <TooltipProvider>
-          <AppContent />
-          <Toaster />
-        </TooltipProvider>
+        <I18nProvider>
+          <TooltipProvider>
+            <AppContent />
+            <Toaster />
+          </TooltipProvider>
+        </I18nProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

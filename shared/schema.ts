@@ -47,6 +47,41 @@ export const organizationInviteSchema = z.object({
 export type CreateInvite = z.infer<typeof createInviteSchema>;
 export type OrganizationInvite = z.infer<typeof organizationInviteSchema>;
 
+// User store permissions (controls which stores a user can access)
+export const userStorePermissionSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  companyId: z.string(),
+  canView: z.boolean().default(true),
+  canEdit: z.boolean().default(false),
+  createdAt: z.date(),
+});
+
+export const insertUserStorePermissionSchema = z.object({
+  userId: z.string(),
+  companyId: z.string(),
+  canView: z.boolean().default(true),
+  canEdit: z.boolean().default(false),
+});
+
+export type UserStorePermission = z.infer<typeof userStorePermissionSchema>;
+export type InsertUserStorePermission = z.infer<typeof insertUserStorePermissionSchema>;
+
+// Create user schema (for admin creating users)
+export const createUserSchema = z.object({
+  username: z.string().min(3, "Nome de utilizador deve ter pelo menos 3 caracteres"),
+  email: z.string().email("Email inválido"),
+  password: z.string().min(6, "Password deve ter pelo menos 6 caracteres"),
+  role: z.enum(["admin", "member"]).default("member"),
+  storePermissions: z.array(z.object({
+    companyId: z.string(),
+    canView: z.boolean(),
+    canEdit: z.boolean(),
+  })).optional(),
+});
+
+export type CreateUser = z.infer<typeof createUserSchema>;
+
 // Company schemas
 export const insertCompanySchema = z.object({
   organizationId: z.string().min(1, "Organization ID is required"),
