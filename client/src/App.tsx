@@ -29,6 +29,15 @@ import Members from "@/pages/members";
 import Search from "@/pages/search";
 import Energy from "@/pages/energy";
 import ActivityLogs from "@/pages/activity-logs";
+import Administration from "@/pages/administration";
+import Requests from "@/pages/requests";
+import Brands from "@/pages/brands";
+import LocalControl from "@/pages/local-control";
+import Schedules from "@/pages/schedules";
+import MediaDashboard from "@/pages/media-dashboard";
+import MediaContent from "@/pages/media-content";
+import MediaPlaylists from "@/pages/media-playlists";
+import AccessGroups from "@/pages/access-groups";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useEffect, type CSSProperties } from "react";
@@ -55,6 +64,19 @@ function AuthenticatedRoutes() {
       <Route path="/organizations" component={Organizations} />
       <Route path="/profile" component={Profile} />
       <Route path="/settings" component={Profile} />
+      {/* Administration */}
+      <Route path="/administration" component={Administration} />
+      <Route path="/requests" component={Requests} />
+      <Route path="/brands" component={Brands} />
+      {/* Local Management */}
+      <Route path="/local-control" component={LocalControl} />
+      <Route path="/schedules" component={Schedules} />
+      {/* Media */}
+      <Route path="/media" component={MediaDashboard} />
+      <Route path="/media/content" component={MediaContent} />
+      <Route path="/media/playlists" component={MediaPlaylists} />
+      {/* Access Groups */}
+      <Route path="/access-groups" component={AccessGroups} />
       {/* Redirect root to dashboard */}
       <Route path="/">
         {() => {

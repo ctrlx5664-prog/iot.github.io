@@ -170,4 +170,109 @@ export const schedules = pgTable("schedules", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Access Groups - defines permission levels (Group 1-5)
+export const accessGroups = pgTable("access_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), // e.g., "Group 1", "Administrador", etc.
+  level: integer("level").notNull().default(5), // 1 = highest permissions, 5 = lowest
+  description: text("description"),
+  // Permissions (JSON string with feature permissions)
+  permissions: text("permissions").notNull().default("{}"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// User Access Group assignment
+export const userAccessGroups = pgTable("user_access_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  accessGroupId: uuid("access_group_id")
+    .notNull()
+    .references(() => accessGroups.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Brands for equipment
+export const brands = pgTable("brands", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  category: text("category").notNull().default("lighting"), // "lighting", "displays"
+  website: text("website"),
+  logo: text("logo"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Maintenance requests
+export const maintenanceRequests = pgTable("maintenance_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  companyId: uuid("company_id")
+    .references(() => companies.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id")
+    .references(() => locations.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull().default("maintenance"), // "maintenance", "admin", "installation"
+  priority: text("priority").notNull().default("medium"), // "high", "medium", "low"
+  status: text("status").notNull().default("open"), // "open", "in_progress", "pending", "completed", "cancelled"
+  createdById: uuid("created_by_id")
+    .references(() => users.id, { onDelete: "set null" }),
+  assignedToId: uuid("assigned_to_id")
+    .references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+// Media content
+export const mediaContent = pgTable("media_content", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // "video", "image"
+  url: text("url").notNull(),
+  size: integer("size"), // file size in bytes
+  duration: integer("duration"), // video duration in seconds
+  folder: text("folder").default("root"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Media playlists
+export const mediaPlaylists = pgTable("media_playlists", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  isLoop: boolean("is_loop").notNull().default(true),
+  status: text("status").notNull().default("draft"), // "active", "inactive", "draft"
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Playlist items (many-to-many between playlists and content)
+export const playlistItems = pgTable("playlist_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  playlistId: uuid("playlist_id")
+    .notNull()
+    .references(() => mediaPlaylists.id, { onDelete: "cascade" }),
+  contentId: uuid("content_id")
+    .notNull()
+    .references(() => mediaContent.id, { onDelete: "cascade" }),
+  order: integer("order").notNull().default(0),
+  duration: integer("duration"), // override duration for this item
+});
+
 

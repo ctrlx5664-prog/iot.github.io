@@ -12,9 +12,20 @@ import {
   User,
   ChevronUp,
   ChevronRight,
+  ChevronDown,
   Lightbulb,
   Monitor,
   LayoutDashboard,
+  Building2,
+  FileText,
+  Wrench,
+  Tag,
+  Sliders,
+  Clock,
+  Film,
+  Play,
+  Upload,
+  Shield,
 } from "lucide-react";
 import {
   Sidebar,
@@ -39,8 +50,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { getToken, apiUrl, clearToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
@@ -55,7 +71,14 @@ interface UserInfo {
 export function AppSidebar() {
   const [location, navigate] = useLocation();
   const queryClient = useQueryClient();
-  const { t, language } = useTranslation();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
+
+  // Collapsible states
+  const [lightControlOpen, setLightControlOpen] = useState(true);
+  const [storesOpen, setStoresOpen] = useState(false);
+  const [localMgmtOpen, setLocalMgmtOpen] = useState(false);
+  const [mediaOpen, setMediaOpen] = useState(false);
 
   // Get current user info
   const { data: userData } = useQuery<{ user: UserInfo }>({
@@ -130,7 +153,7 @@ export function AppSidebar() {
                 CtrlX
               </h2>
               <p className="text-xs text-muted-foreground">
-                {language === "pt" ? "Painel de Controlo" : "Control Panel"}
+                {tr("Painel de Controlo", "Control Panel")}
               </p>
             </div>
           </div>
@@ -138,139 +161,223 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2">
-        {/* Main Navigation */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
-            {language === "pt" ? "Principal" : "Main"}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/dashboard"}>
-                  <Link href="/dashboard">
-                    <Home className="w-4 h-4" />
-                    <span>Dashboard</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/ha"}>
-                  <Link href="/ha">
-                    <LayoutDashboard className="w-4 h-4" />
-                    <span>{language === "pt" ? "Controlo" : "Control"}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/search"}>
-                  <Link href="/search">
-                    <Search className="w-4 h-4" />
-                    <span>{language === "pt" ? "Pesquisar" : "Search"}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Stores Section */}
-        <SidebarGroup>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold p-0">
-              {language === "pt" ? "Lojas" : "Stores"}
-            </SidebarGroupLabel>
-            <Badge variant="secondary" className="text-xs h-5 px-1.5">
-              {companies.length}
-            </Badge>
-          </div>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {/* All Stores Link */}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/stores"}>
-                  <Link href="/stores">
-                    <Store className="w-4 h-4" />
-                    <span>{language === "pt" ? "Ver Todas" : "View All"}</span>
-                    <ChevronRight className="w-3 h-3 ml-auto opacity-50" />
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* Individual Stores */}
-              {companies.slice(0, 6).map((company) => {
-                const storeStats = getStoreStats(company.id);
-                const isActive = location === `/store/${company.id}` ||
-                                 location.startsWith(`/location/`) && 
-                                 locations.some(l => l.companyId === company.id && location === `/location/${l.id}`);
-                
-                return (
-                  <SidebarMenuItem key={company.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      className="pl-6"
-                    >
-                      <Link href={`/store/${company.id}`}>
-                        <MapPin className="w-3.5 h-3.5" />
-                        <span className="flex-1 truncate text-sm">{company.name}</span>
-                        {storeStats.offline > 0 ? (
-                          <Badge variant="destructive" className="text-[10px] h-4 px-1">
-                            {storeStats.offline}
-                          </Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {storeStats.spaces}
-                          </span>
-                        )}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* LIGHT CONTROL SECTION */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        <Collapsible open={lightControlOpen} onOpenChange={setLightControlOpen}>
+          <SidebarGroup>
+            <CollapsibleTrigger className="w-full">
+              <SidebarGroupLabel className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4" />
+                  {tr("Light Control", "Light Control")}
+                </span>
+                {lightControlOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {/* Dashboard */}
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/dashboard"}>
+                      <Link href="/dashboard">
+                        <Home className="w-4 h-4" />
+                        <span>Dashboard</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                );
-              })}
-              
-              {companies.length > 6 && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild className="pl-6 text-muted-foreground">
-                    <Link href="/stores">
-                      <span className="text-xs">
-                        +{companies.length - 6} {language === "pt" ? "mais" : "more"}
-                      </span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
 
-        {/* Tools Section */}
+                  {/* Administration submenu */}
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/administration"}>
+                      <Link href="/administration">
+                        <Building2 className="w-4 h-4" />
+                        <span>{tr("Administração", "Administration")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/members"}>
+                      <Link href="/members">
+                        <Users className="w-4 h-4" />
+                        <span>{tr("Membros", "Members")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/requests"}>
+                      <Link href="/requests">
+                        <Wrench className="w-4 h-4" />
+                        <span>{tr("Pedidos", "Requests")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* STORES SECTION */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        <Collapsible open={storesOpen} onOpenChange={setStoresOpen}>
+          <SidebarGroup>
+            <CollapsibleTrigger className="w-full">
+              <SidebarGroupLabel className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Store className="w-4 h-4" />
+                  {tr("Lojas", "Stores")}
+                  <Badge variant="secondary" className="text-xs h-5 px-1.5 ml-1">
+                    {companies.length}
+                  </Badge>
+                </span>
+                {storesOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/brands"}>
+                      <Link href="/brands">
+                        <Tag className="w-4 h-4" />
+                        <span>{tr("Marcas", "Brands")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/stores"}>
+                      <Link href="/stores">
+                        <MapPin className="w-4 h-4" />
+                        <span>{tr("Espaços", "Spaces")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/search"}>
+                      <Link href="/search">
+                        <Search className="w-4 h-4" />
+                        <span>{tr("Pesquisar", "Search")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  {/* Individual Stores */}
+                  {companies.slice(0, 5).map((company) => {
+                    const storeStats = getStoreStats(company.id);
+                    const isActive = location === `/store/${company.id}`;
+                    
+                    return (
+                      <SidebarMenuItem key={company.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          className="pl-6"
+                        >
+                          <Link href={`/store/${company.id}`}>
+                            <Store className="w-3.5 h-3.5" />
+                            <span className="flex-1 truncate text-sm">{company.name}</span>
+                            {storeStats.offline > 0 ? (
+                              <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                                {storeStats.offline}
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {storeStats.spaces}
+                              </span>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* LOCAL MANAGEMENT SECTION */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        <Collapsible open={localMgmtOpen} onOpenChange={setLocalMgmtOpen}>
+          <SidebarGroup>
+            <CollapsibleTrigger className="w-full">
+              <SidebarGroupLabel className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Sliders className="w-4 h-4" />
+                  {tr("Gestão Local", "Local Management")}
+                </span>
+                {localMgmtOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/local-control"}>
+                      <Link href="/local-control">
+                        <Lightbulb className="w-4 h-4" />
+                        <span>{tr("Controlo Local", "Local Control")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/schedules"}>
+                      <Link href="/schedules">
+                        <Clock className="w-4 h-4" />
+                        <span>{tr("Agendamentos", "Schedules")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/ha"}>
+                      <Link href="/ha">
+                        <LayoutDashboard className="w-4 h-4" />
+                        <span>{tr("Painel HA", "HA Panel")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ECO MANAGEMENT SECTION */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
-            {language === "pt" ? "Ferramentas" : "Tools"}
+            <span className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" />
+              {tr("Eco Management", "Eco Management")}
+            </span>
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={location === "/energy"}>
                   <Link href="/energy">
-                    <BarChart3 className="w-4 h-4" />
-                    <span>{language === "pt" ? "Energia" : "Energy"}</span>
+                    <Zap className="w-4 h-4" />
+                    <span>{tr("Consumo Energético", "Energy Consumption")}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={location === "/logs"}>
                   <Link href="/logs">
                     <History className="w-4 h-4" />
-                    <span>{language === "pt" ? "Histórico" : "History"}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/videos"}>
-                  <Link href="/videos">
-                    <Monitor className="w-4 h-4" />
-                    <span>{language === "pt" ? "Vídeos & TVs" : "Videos & TVs"}</span>
+                    <span>{tr("Histórico", "History")}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -278,18 +385,81 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Admin Section */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* MEDIA SECTION */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        <Collapsible open={mediaOpen} onOpenChange={setMediaOpen}>
+          <SidebarGroup>
+            <CollapsibleTrigger className="w-full">
+              <SidebarGroupLabel className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold cursor-pointer hover:text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4" />
+                  {tr("Media", "Media")}
+                </span>
+                {mediaOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/media"}>
+                      <Link href="/media">
+                        <Home className="w-4 h-4" />
+                        <span>Dashboard</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/media/content"}>
+                      <Link href="/media/content">
+                        <Upload className="w-4 h-4" />
+                        <span>{tr("Conteúdos", "Content")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/media/playlists"}>
+                      <Link href="/media/playlists">
+                        <Play className="w-4 h-4" />
+                        <span>Playlists</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/videos"}>
+                      <Link href="/videos">
+                        <Film className="w-4 h-4" />
+                        <span>{tr("Vídeos & TVs", "Videos & TVs")}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* ADMIN SECTION */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
-            {language === "pt" ? "Administração" : "Admin"}
+            <span className="flex items-center gap-2">
+              <Shield className="w-4 h-4" />
+              {tr("Sistema", "System")}
+            </span>
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/members"}>
-                  <Link href="/members">
-                    <Users className="w-4 h-4" />
-                    <span>{language === "pt" ? "Utilizadores" : "Users"}</span>
+                <SidebarMenuButton asChild isActive={location === "/access-groups"}>
+                  <Link href="/access-groups">
+                    <Shield className="w-4 h-4" />
+                    <span>{tr("Grupos de Acesso", "Access Groups")}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -297,7 +467,7 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild isActive={location === "/organizations"}>
                   <Link href="/organizations">
                     <Settings className="w-4 h-4" />
-                    <span>{language === "pt" ? "Organização" : "Organization"}</span>
+                    <span>{tr("Organização", "Organization")}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -312,7 +482,7 @@ export function AppSidebar() {
           <div className="flex items-center justify-between text-xs mb-2">
             <div className="flex items-center gap-2">
               <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
-              <span className="text-muted-foreground">{language === "pt" ? "Luzes" : "Lights"}</span>
+              <span className="text-muted-foreground">{tr("Luzes", "Lights")}</span>
             </div>
             <span className="font-medium">
               <span className="text-green-500">{stats.activeLights}</span>
@@ -321,7 +491,7 @@ export function AppSidebar() {
           </div>
           {stats.offlineDevices > 0 && (
             <div className="flex items-center justify-between text-xs">
-              <span className="text-red-500">{language === "pt" ? "Offline" : "Offline"}</span>
+              <span className="text-red-500">Offline</span>
               <Badge variant="destructive" className="text-[10px] h-4 px-1">
                 {stats.offlineDevices}
               </Badge>
@@ -355,13 +525,13 @@ export function AppSidebar() {
               <DropdownMenuItem asChild>
                 <Link href="/profile" className="cursor-pointer">
                   <User className="w-4 h-4 mr-2" />
-                  {language === "pt" ? "Perfil" : "Profile"}
+                  {tr("Perfil", "Profile")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/settings" className="cursor-pointer">
                   <Settings className="w-4 h-4 mr-2" />
-                  {language === "pt" ? "Definições" : "Settings"}
+                  {tr("Definições", "Settings")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -370,7 +540,7 @@ export function AppSidebar() {
                 className="text-red-600 cursor-pointer"
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                {language === "pt" ? "Terminar Sessão" : "Logout"}
+                {tr("Terminar Sessão", "Logout")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
