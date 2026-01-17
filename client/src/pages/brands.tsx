@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,13 +16,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Tag,
   Plus,
@@ -33,10 +33,13 @@ import {
   Search,
   Building,
   ExternalLink,
+  ChevronRight,
+  MapPin,
 } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 import { getToken, apiUrl } from "@/lib/auth";
-import type { Company } from "@shared/schema";
+import type { Company, Location, Light, Tv } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 // Mock brands data
 const mockBrands = [
@@ -46,7 +49,7 @@ const mockBrands = [
     category: "lighting",
     storesCount: 12,
     devicesCount: 156,
-    logo: "https://www.philips-hue.com/favicon.ico",
+    logo: null,
     website: "https://www.philips-hue.com",
     status: "active",
   },
@@ -105,12 +108,57 @@ const mockBrands = [
 export default function Brands() {
   const { language } = useTranslation();
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
+  const { toast } = useToast();
+
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [newBrandName, setNewBrandName] = useState("");
   const [newBrandWebsite, setNewBrandWebsite] = useState("");
   const [newBrandCategory, setNewBrandCategory] = useState("lighting");
+
+  const token = getToken();
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+  // Fetch stores to get real counts
+  const { data: companies = [] } = useQuery<Company[]>({
+    queryKey: ["/api/companies"],
+    queryFn: async () => {
+      const res = await fetch(apiUrl("/api/companies"), { headers });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  // Fetch locations
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+    queryFn: async () => {
+      const res = await fetch(apiUrl("/api/locations"), { headers });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  // Fetch lights
+  const { data: lights = [] } = useQuery<Light[]>({
+    queryKey: ["/api/lights"],
+    queryFn: async () => {
+      const res = await fetch(apiUrl("/api/lights"), { headers });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  // Fetch TVs
+  const { data: tvs = [] } = useQuery<Tv[]>({
+    queryKey: ["/api/tvs"],
+    queryFn: async () => {
+      const res = await fetch(apiUrl("/api/tvs"), { headers });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
 
   const filteredBrands = mockBrands.filter((brand) => {
     if (filterCategory !== "all" && brand.category !== filterCategory) return false;
@@ -144,6 +192,24 @@ export default function Brands() {
     }
   };
 
+  const handleCreateBrand = () => {
+    if (!newBrandName) {
+      toast({
+        title: tr("Erro", "Error"),
+        description: tr("O nome é obrigatório", "Name is required"),
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({
+      title: tr("Marca criada", "Brand created"),
+      description: newBrandName,
+    });
+    setIsCreateOpen(false);
+    setNewBrandName("");
+    setNewBrandWebsite("");
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -153,7 +219,7 @@ export default function Brands() {
             {tr("Marcas", "Brands")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {tr("Gestão de marcas e fabricantes de equipamentos", "Management of equipment brands and manufacturers")}
+            {tr("Gestão de marcas e os seus equipamentos", "Management of brands and their equipment")}
           </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -167,28 +233,39 @@ export default function Brands() {
             <DialogHeader>
               <DialogTitle>{tr("Adicionar Nova Marca", "Add New Brand")}</DialogTitle>
               <DialogDescription>
-                {tr("Adicione uma nova marca de equipamento ao sistema", "Add a new equipment brand to the system")}
+                {tr("Adicione uma nova marca de cliente ao sistema", "Add a new client brand to the system")}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>{tr("Nome da Marca", "Brand Name")}</Label>
+                <Label>{tr("Nome da Marca", "Brand Name")} *</Label>
                 <Input
                   value={newBrandName}
                   onChange={(e) => setNewBrandName(e.target.value)}
-                  placeholder={tr("Ex: Philips Hue", "Ex: Philips Hue")}
+                  placeholder={tr("Ex: WELLS", "Ex: WELLS")}
                 />
               </div>
               <div className="space-y-2">
                 <Label>{tr("Categoria", "Category")}</Label>
-                <select
-                  value={newBrandCategory}
-                  onChange={(e) => setNewBrandCategory(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-input bg-background"
-                >
-                  <option value="lighting">{tr("Iluminação", "Lighting")}</option>
-                  <option value="displays">{tr("Ecrãs", "Displays")}</option>
-                </select>
+                <Select value={newBrandCategory} onValueChange={setNewBrandCategory}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lighting">
+                      <div className="flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4" />
+                        {tr("Iluminação", "Lighting")}
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="displays">
+                      <div className="flex items-center gap-2">
+                        <Monitor className="w-4 h-4" />
+                        {tr("Ecrãs", "Displays")}
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>{tr("Website", "Website")}</Label>
@@ -203,7 +280,7 @@ export default function Brands() {
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
                 {tr("Cancelar", "Cancel")}
               </Button>
-              <Button onClick={() => setIsCreateOpen(false)}>
+              <Button onClick={handleCreateBrand}>
                 {tr("Adicionar", "Add")}
               </Button>
             </DialogFooter>
@@ -306,7 +383,7 @@ export default function Brands() {
         </CardContent>
       </Card>
 
-      {/* Brands Table */}
+      {/* Brands Grid */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -314,98 +391,96 @@ export default function Brands() {
             {tr("Lista de Marcas", "Brand List")}
           </CardTitle>
           <CardDescription>
-            {tr("Todas as marcas de equipamentos registadas no sistema", "All equipment brands registered in the system")}
+            {tr("Clique numa marca para ver as suas lojas", "Click on a brand to see its stores")}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tr("Marca", "Brand")}</TableHead>
-                <TableHead>{tr("Categoria", "Category")}</TableHead>
-                <TableHead>{tr("Lojas", "Stores")}</TableHead>
-                <TableHead>{tr("Dispositivos", "Devices")}</TableHead>
-                <TableHead>{tr("Estado", "Status")}</TableHead>
-                <TableHead className="text-right">{tr("Ações", "Actions")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredBrands.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    {tr("Nenhuma marca encontrada", "No brands found")}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredBrands.map((brand) => (
-                  <TableRow key={brand.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                          {brand.logo ? (
-                            <img src={brand.logo} alt={brand.name} className="w-6 h-6" />
-                          ) : (
-                            <Tag className="w-5 h-5 text-muted-foreground" />
-                          )}
+          {filteredBrands.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Tag className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>{tr("Nenhuma marca encontrada", "No brands found")}</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {filteredBrands.map((brand) => (
+                <Card
+                  key={brand.id}
+                  className="hover:border-primary/50 transition-all cursor-pointer group overflow-hidden"
+                  asChild
+                >
+                  <Link href={`/brand/${brand.id}`}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center group-hover:from-primary/30 group-hover:to-primary/20 transition-colors">
+                            {brand.logo ? (
+                              <img src={brand.logo} alt={brand.name} className="w-7 h-7" />
+                            ) : (
+                              <Tag className="w-6 h-6 text-primary" />
+                            )}
+                          </div>
+                          <div>
+                            <CardTitle className="text-lg group-hover:text-primary transition-colors">
+                              {brand.name}
+                            </CardTitle>
+                            {brand.website && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                <ExternalLink className="w-3 h-3" />
+                                {brand.website.replace("https://", "").replace("www.", "")}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{brand.name}</p>
-                          {brand.website && (
-                            <a
-                              href={brand.website}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-                            >
-                              {brand.website.replace("https://", "").replace("www.", "")}
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
+                        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-3 mb-4">
+                        <Badge variant="outline" className="gap-1">
+                          {getCategoryIcon(brand.category)}
+                          {getCategoryLabel(brand.category)}
+                        </Badge>
+                        <Badge variant={brand.status === "active" ? "default" : "secondary"}>
+                          {brand.status === "active" ? tr("Ativa", "Active") : tr("Inativa", "Inactive")}
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 rounded-lg bg-muted/50 text-center">
+                          <div className="flex items-center justify-center gap-1.5 mb-1">
+                            <Store className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-xl font-bold">{brand.storesCount}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{tr("Lojas", "Stores")}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-muted/50 text-center">
+                          <div className="flex items-center justify-center gap-1.5 mb-1">
+                            {brand.category === "lighting" ? (
+                              <Lightbulb className="w-4 h-4 text-muted-foreground" />
+                            ) : (
+                              <Monitor className="w-4 h-4 text-muted-foreground" />
+                            )}
+                            <span className="text-xl font-bold">{brand.devicesCount}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{tr("Dispositivos", "Devices")}</p>
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="gap-1">
-                        {getCategoryIcon(brand.category)}
-                        {getCategoryLabel(brand.category)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Store className="w-4 h-4 text-muted-foreground" />
-                        {brand.storesCount}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        {brand.category === "lighting" ? (
-                          <Lightbulb className="w-4 h-4 text-muted-foreground" />
-                        ) : (
-                          <Monitor className="w-4 h-4 text-muted-foreground" />
-                        )}
-                        {brand.devicesCount}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={brand.status === "active" ? "default" : "secondary"}>
-                        {brand.status === "active" ? tr("Ativa", "Active") : tr("Inativa", "Inactive")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon">
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="text-red-500">
-                          <Trash2 className="w-4 h-4" />
+
+                      <div className="mt-4 pt-3 border-t flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {tr("Ver lojas e espaços", "View stores and spaces")}
+                        </span>
+                        <Button variant="ghost" size="sm" className="text-xs h-7">
+                          {tr("Abrir", "Open")}
+                          <ChevronRight className="w-3 h-3 ml-1" />
                         </Button>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                    </CardContent>
+                  </Link>
+                </Card>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

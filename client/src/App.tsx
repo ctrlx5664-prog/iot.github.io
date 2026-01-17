@@ -32,6 +32,7 @@ import ActivityLogs from "@/pages/activity-logs";
 import Administration from "@/pages/administration";
 import Requests from "@/pages/requests";
 import Brands from "@/pages/brands";
+import BrandDetail from "@/pages/brand-detail";
 import LocalControl from "@/pages/local-control";
 import Schedules from "@/pages/schedules";
 import MediaDashboard from "@/pages/media-dashboard";
@@ -68,6 +69,7 @@ function AuthenticatedRoutes() {
       <Route path="/administration" component={Administration} />
       <Route path="/requests" component={Requests} />
       <Route path="/brands" component={Brands} />
+      <Route path="/brand/:id" component={BrandDetail} />
       {/* Local Management */}
       <Route path="/local-control" component={LocalControl} />
       <Route path="/schedules" component={Schedules} />
