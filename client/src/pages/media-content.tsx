@@ -41,14 +41,14 @@ import { useTranslation } from "@/lib/i18n";
 
 // Mock media content
 const mockContent = [
-  { id: "1", name: "Promo Verão 2026.mp4", type: "video", size: "45.2 MB", duration: "00:30", uploadedAt: "2026-01-15", usedIn: 3 },
-  { id: "2", name: "Logo Animado.mp4", type: "video", size: "12.8 MB", duration: "00:05", uploadedAt: "2026-01-14", usedIn: 8 },
-  { id: "3", name: "Banner Principal.png", type: "image", size: "2.4 MB", duration: null, uploadedAt: "2026-01-13", usedIn: 5 },
-  { id: "4", name: "Campanha Natal.mp4", type: "video", size: "78.5 MB", duration: "01:00", uploadedAt: "2025-12-20", usedIn: 2 },
-  { id: "5", name: "Slideshow Produtos.mp4", type: "video", size: "34.1 MB", duration: "00:45", uploadedAt: "2026-01-10", usedIn: 4 },
-  { id: "6", name: "Fundo Vitrine.jpg", type: "image", size: "1.8 MB", duration: null, uploadedAt: "2026-01-08", usedIn: 6 },
-  { id: "7", name: "Anúncio Flash Sale.mp4", type: "video", size: "22.3 MB", duration: "00:15", uploadedAt: "2026-01-05", usedIn: 1 },
-  { id: "8", name: "QR Code Loja.png", type: "image", size: "0.5 MB", duration: null, uploadedAt: "2026-01-02", usedIn: 12 },
+  { id: "1", name: "Summer Promo 2026.mp4", type: "video", size: "45.2 MB", duration: "00:30", uploadedAt: "2026-01-15", usedIn: 3 },
+  { id: "2", name: "Animated Logo.mp4", type: "video", size: "12.8 MB", duration: "00:05", uploadedAt: "2026-01-14", usedIn: 8 },
+  { id: "3", name: "Main Banner.png", type: "image", size: "2.4 MB", duration: null, uploadedAt: "2026-01-13", usedIn: 5 },
+  { id: "4", name: "Holiday Campaign.mp4", type: "video", size: "78.5 MB", duration: "01:00", uploadedAt: "2025-12-20", usedIn: 2 },
+  { id: "5", name: "Product Slideshow.mp4", type: "video", size: "34.1 MB", duration: "00:45", uploadedAt: "2026-01-10", usedIn: 4 },
+  { id: "6", name: "Showcase Background.jpg", type: "image", size: "1.8 MB", duration: null, uploadedAt: "2026-01-08", usedIn: 6 },
+  { id: "7", name: "Flash Sale Ad.mp4", type: "video", size: "22.3 MB", duration: "00:15", uploadedAt: "2026-01-05", usedIn: 1 },
+  { id: "8", name: "Store QR Code.png", type: "image", size: "0.5 MB", duration: null, uploadedAt: "2026-01-02", usedIn: 12 },
 ];
 
 export default function MediaContent() {

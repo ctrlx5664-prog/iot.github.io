@@ -470,7 +470,9 @@ export function AppSidebar() {
                 </Avatar>
                 <div className="flex-1 text-left min-w-0">
                   <p className="text-sm font-medium truncate">{user.username}</p>
-                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {user.email || tr("Sem email", "No email")}
+                  </p>
                 </div>
                 <ChevronUp className="w-4 h-4 text-muted-foreground" />
               </button>
@@ -478,7 +480,9 @@ export function AppSidebar() {
             <DropdownMenuContent align="end" className="w-56" side="top">
               <div className="px-2 py-1.5">
                 <p className="text-sm font-medium">{user.username}</p>
-                <p className="text-xs text-muted-foreground">{user.email}</p>
+                <p className="text-xs text-muted-foreground">
+                  {user.email || tr("Sem email", "No email")}
+                </p>
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>

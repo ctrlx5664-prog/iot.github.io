@@ -82,9 +82,9 @@ const permissionFeatures = {
 const mockGroups = [
   {
     id: "1",
-    name: "Grupo 1 - Super Admin",
+    name: "Group 1 - Super Admin",
     level: 1,
-    description: "Acesso total a todas as funcionalidades",
+    description: "Full access to all features",
     usersCount: 2,
     permissions: {
       "lightControl.dashboard": true,
@@ -105,9 +105,9 @@ const mockGroups = [
   },
   {
     id: "2",
-    name: "Grupo 2 - Admin",
+    name: "Group 2 - Admin",
     level: 2,
-    description: "Gestão de membros e lojas",
+    description: "Manage members and stores",
     usersCount: 5,
     permissions: {
       "lightControl.dashboard": true,
@@ -124,9 +124,9 @@ const mockGroups = [
   },
   {
     id: "3",
-    name: "Grupo 3 - Gestor",
+    name: "Group 3 - Manager",
     level: 3,
-    description: "Gestão de espaços e pedidos",
+    description: "Manage spaces and requests",
     usersCount: 8,
     permissions: {
       "lightControl.dashboard": true,
@@ -139,9 +139,9 @@ const mockGroups = [
   },
   {
     id: "4",
-    name: "Grupo 4 - Operador",
+    name: "Group 4 - Operator",
     level: 4,
-    description: "Controlo local e pesquisa",
+    description: "Local control and search",
     usersCount: 15,
     permissions: {
       "stores.search": true,
@@ -150,9 +150,9 @@ const mockGroups = [
   },
   {
     id: "5",
-    name: "Grupo 5 - Visualizador",
+    name: "Group 5 - Viewer",
     level: 5,
-    description: "Apenas visualização",
+    description: "View only",
     usersCount: 20,
     permissions: {
       "localManagement.localControl": true,

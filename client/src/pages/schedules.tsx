@@ -121,7 +121,7 @@ export default function Schedules() {
   const [schedules, setSchedules] = useState<Schedule[]>([
     {
       id: "1",
-      name: "Abertura Manhã",
+      name: "Morning Opening",
       action: "turn_on",
       time: "08:00",
       days: ["mon", "tue", "wed", "thu", "fri"],
@@ -135,7 +135,7 @@ export default function Schedules() {
     },
     {
       id: "2",
-      name: "Fecho Noite",
+      name: "Night Closing",
       action: "turn_off",
       time: "22:00",
       days: ["mon", "tue", "wed", "thu", "fri", "sat"],
@@ -149,7 +149,7 @@ export default function Schedules() {
     },
     {
       id: "3",
-      name: "Modo Vitrine",
+      name: "Showcase Mode",
       action: "set_brightness",
       time: "10:00",
       days: ["sat", "sun"],
@@ -163,7 +163,7 @@ export default function Schedules() {
     },
     {
       id: "4",
-      name: "Redução Noturna",
+      name: "Night Dimming",
       action: "set_brightness",
       time: "20:00",
       days: allDays,

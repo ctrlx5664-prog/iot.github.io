@@ -70,7 +70,7 @@ export type InsertUserStorePermission = z.infer<typeof insertUserStorePermission
 // Create user schema (for admin creating users)
 export const createUserSchema = z.object({
   username: z.string().min(3, "Nome de utilizador deve ter pelo menos 3 caracteres"),
-  email: z.string().email("Email inválido"),
+  email: z.string().email("Email inválido").optional().or(z.literal("")),
   password: z.string().min(6, "Password deve ter pelo menos 6 caracteres"),
   role: z.enum(["admin", "member"]).default("member"),
   storePermissions: z.array(z.object({

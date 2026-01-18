@@ -86,7 +86,7 @@ function generateMockDailyData(days: number = 30) {
 }
 
 function generateMockStoreData(stores: { id: string; name: string }[]) {
-  const fallbackStores = ['Loja Lisboa', 'Loja Porto', 'Loja Coimbra', 'Loja Faro'];
+  const fallbackStores = ['Lisbon Store', 'Porto Store', 'Coimbra Store', 'Faro Store'];
   const list = stores.length > 0 ? stores : fallbackStores.map((name, idx) => ({ id: `s-${idx}`, name }));
   return list.map(store => ({
     id: store.id,

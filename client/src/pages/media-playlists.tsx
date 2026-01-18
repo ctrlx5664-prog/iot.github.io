@@ -40,7 +40,7 @@ import { useTranslation } from "@/lib/i18n";
 const mockPlaylists = [
   {
     id: "1",
-    name: "Playlist Principal",
+    name: "Main Playlist",
     itemCount: 8,
     duration: "04:30",
     screens: 12,
@@ -50,7 +50,7 @@ const mockPlaylists = [
   },
   {
     id: "2",
-    name: "Promoções Janeiro",
+    name: "January Promotions",
     itemCount: 5,
     duration: "02:15",
     screens: 8,
@@ -60,7 +60,7 @@ const mockPlaylists = [
   },
   {
     id: "3",
-    name: "Vitrine Especial",
+    name: "Special Showcase",
     itemCount: 3,
     duration: "01:30",
     screens: 4,
@@ -70,7 +70,7 @@ const mockPlaylists = [
   },
   {
     id: "4",
-    name: "Campanha Natal (Arquivada)",
+    name: "Holiday Campaign (Archived)",
     itemCount: 10,
     duration: "05:00",
     screens: 0,
@@ -80,7 +80,7 @@ const mockPlaylists = [
   },
   {
     id: "5",
-    name: "Demo Loja Nova",
+    name: "New Store Demo",
     itemCount: 4,
     duration: "02:00",
     screens: 2,

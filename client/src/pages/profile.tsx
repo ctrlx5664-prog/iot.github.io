@@ -18,7 +18,7 @@ import { useTranslation } from "@/lib/i18n";
 interface UserProfile {
   id: string;
   username: string;
-  email: string;
+  email: string | null;
 }
 
 export default function Profile() {
@@ -60,7 +60,7 @@ export default function Profile() {
       const data = await res.json();
       setUser(data.user);
       setUsername(data.user.username);
-      setEmail(data.user.email);
+      setEmail(data.user.email ?? "");
     } catch (err: any) {
       setError(err?.message);
     } finally {
@@ -82,7 +82,10 @@ export default function Profile() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ username, email }),
+        body: JSON.stringify({
+          username,
+          email: email.trim() === "" ? null : email.trim(),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || tr("Falha ao atualizar perfil", "Failed to update profile"));
@@ -171,7 +174,7 @@ export default function Profile() {
             </Avatar>
             <div>
               <CardTitle>{user?.username}</CardTitle>
-              <CardDescription>{user?.email}</CardDescription>
+              <CardDescription>{user?.email || tr("Sem email", "No email")}</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -190,13 +193,12 @@ export default function Profile() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{tr("Email", "Email")}</label>
+              <label className="text-sm font-medium">{tr("Email (opcional)", "Email (optional)")}</label>
               <Input
                 type="email"
                 value={email}
                 onChange={(e: any) => setEmail(e.target.value)}
                 placeholder={tr("email@exemplo.com", "email@example.com")}
-                required
               />
             </div>
 

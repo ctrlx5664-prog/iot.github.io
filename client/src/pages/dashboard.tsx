@@ -38,10 +38,10 @@ import { QuickActionsScroll, QuickActionChip } from "@/components/mobile-swipe-c
 // Mock recent activity
 function generateMockActivity() {
   return [
-    { id: "1", action: "light_on", user: "admin", target: "Backlight", store: "Loja 1", time: "5 min" },
-    { id: "2", action: "brightness", user: "joao", target: "Main Display", store: "Loja 1", time: "15 min" },
-    { id: "3", action: "light_off", user: "maria", target: "Entrance", store: "Loja 2", time: "1h" },
-    { id: "4", action: "schedule", user: "admin", target: "Modo Noite", store: "Todas", time: "2h" },
+    { id: "1", action: "light_on", user: "admin", target: "Backlight", store: "Store 1", time: "5 min" },
+    { id: "2", action: "brightness", user: "john", target: "Main Display", store: "Store 1", time: "15 min" },
+    { id: "3", action: "light_off", user: "mary", target: "Entrance", store: "Store 2", time: "1h" },
+    { id: "4", action: "schedule", user: "admin", target: "Night Mode", store: "All Stores", time: "2h" },
   ];
 }
 

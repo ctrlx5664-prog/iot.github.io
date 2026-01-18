@@ -50,16 +50,16 @@ import type { Organization } from "@shared/schema";
 
 // Mock data for boards/directories
 const mockBoards = [
-  { id: "1", name: "Conselho de Administração", members: 5, status: "active", lastMeeting: "2026-01-15" },
-  { id: "2", name: "Diretoria Operacional", members: 8, status: "active", lastMeeting: "2026-01-10" },
-  { id: "3", name: "Comité de Segurança", members: 4, status: "active", lastMeeting: "2026-01-12" },
-  { id: "4", name: "Diretoria Financeira", members: 3, status: "inactive", lastMeeting: "2025-12-20" },
+  { id: "1", name: "Board of Directors", members: 5, status: "active", lastMeeting: "2026-01-15" },
+  { id: "2", name: "Operations Board", members: 8, status: "active", lastMeeting: "2026-01-10" },
+  { id: "3", name: "Security Committee", members: 4, status: "active", lastMeeting: "2026-01-12" },
+  { id: "4", name: "Finance Board", members: 3, status: "inactive", lastMeeting: "2025-12-20" },
 ];
 
 const mockPolicies = [
-  { id: "1", title: "Política de Acesso", version: "2.1", updatedAt: "2026-01-10", status: "active" },
-  { id: "2", title: "Regulamento Interno", version: "1.5", updatedAt: "2025-12-15", status: "active" },
-  { id: "3", title: "Política de Segurança", version: "3.0", updatedAt: "2026-01-05", status: "review" },
+  { id: "1", title: "Access Policy", version: "2.1", updatedAt: "2026-01-10", status: "active" },
+  { id: "2", title: "Internal Regulations", version: "1.5", updatedAt: "2025-12-15", status: "active" },
+  { id: "3", title: "Security Policy", version: "3.0", updatedAt: "2026-01-05", status: "review" },
 ];
 
 export default function Administration() {

@@ -60,16 +60,16 @@ type ActivityLog = {
 // Generate mock activity logs
 function generateMockLogs(stores: { id: string; name: string }[]): ActivityLog[] {
   const fallbackStores = [
-    { id: "s1", name: "Loja Lisboa" },
-    { id: "s2", name: "Loja Porto" },
-    { id: "s3", name: "Loja Coimbra" },
+    { id: "s1", name: "Lisbon Store" },
+    { id: "s2", name: "Porto Store" },
+    { id: "s3", name: "Coimbra Store" },
   ];
   const storePool = stores.length > 0 ? stores : fallbackStores;
   const users = [
     { id: "1", username: "admin" },
-    { id: "2", username: "joao.silva" },
-    { id: "3", username: "maria.santos" },
-    { id: "4", username: "pedro.costa" },
+    { id: "2", username: "john.smith" },
+    { id: "3", username: "mary.jones" },
+    { id: "4", username: "peter.brown" },
   ];
 
   const actions = [

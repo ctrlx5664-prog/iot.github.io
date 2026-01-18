@@ -258,27 +258,37 @@ export async function registerRoutes(
     if (!user || !verifyPassword(password ?? "", user.passwordHash)) {
       return res.status(401).json({ error: "Credenciais inválidas" });
     }
-    
-    // Check if email is verified
-    if (!user.emailVerified) {
+
+    const userEmail = typeof user.email === "string" && user.email.trim() !== ""
+      ? user.email
+      : null;
+
+    // Check if email is verified (only if user has email)
+    if (userEmail && !user.emailVerified) {
       return res.status(403).json({ 
         error: "Email não verificado",
         requiresEmailVerification: true,
         userId: user.id 
       });
     }
-    
+
+    // If user has no email, skip 2FA and login directly
+    if (!userEmail) {
+      const token = signJwt({ sub: user.username });
+      return res.json({ token, user: { username: user.username, email: user.email } });
+    }
+
     // Send 2FA code
-    const sent = await createAndSendVerificationCode(user.id, user.email, "login_2fa");
+    const sent = await createAndSendVerificationCode(user.id, userEmail, "login_2fa");
     if (!sent) {
       return res.status(500).json({ error: "Falha ao enviar código de verificação" });
     }
-    
+
     // Return pending state - user must verify 2FA
     res.json({ 
       requires2FA: true,
       userId: user.id,
-      email: user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3"), // Mask email
+      email: userEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3"), // Mask email
       message: "Código de verificação enviado para o seu email"
     });
   });
@@ -308,14 +318,21 @@ export async function registerRoutes(
   // Register - Step 1: Create account and send verification email
   app.post("/api/auth/register", async (req, res) => {
     const { username, email, password } = req.body || {};
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: "username, email e password são obrigatórios" });
+    if (!username || !password) {
+      return res.status(400).json({ error: "username e password são obrigatórios" });
     }
-    
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: "Email inválido" });
+
+    const normalizedEmail =
+      typeof email === "string" && email.trim() !== ""
+        ? email.trim().toLowerCase()
+        : null;
+
+    // Validate email format (if provided)
+    if (normalizedEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(normalizedEmail)) {
+        return res.status(400).json({ error: "Email inválido" });
+      }
     }
     
     const db = await getDb();
@@ -327,33 +344,40 @@ export async function registerRoutes(
     }
     
     // Check if email exists
-    const [existingEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-    if (existingEmail) {
-      return res.status(409).json({ error: "Email já registado" });
+    if (normalizedEmail) {
+      const [existingEmail] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
+      if (existingEmail) {
+        return res.status(409).json({ error: "Email já registado" });
+      }
     }
     
     const passwordHash = hashPassword(password);
     const [newUser] = await db.insert(users).values({ 
       username, 
-      email,
+      email: normalizedEmail,
       passwordHash,
-      emailVerified: false 
+      emailVerified: normalizedEmail ? false : true 
     }).returning();
-    
-    // Send verification email
-    const sent = await createAndSendVerificationCode(newUser.id, email, "email_verify");
-    if (!sent) {
-      // Delete the user if email failed
-      await db.delete(users).where(eq(users.id, newUser.id));
-      return res.status(500).json({ error: "Falha ao enviar email de verificação" });
+
+    if (normalizedEmail) {
+      // Send verification email
+      const sent = await createAndSendVerificationCode(newUser.id, normalizedEmail, "email_verify");
+      if (!sent) {
+        // Delete the user if email failed
+        await db.delete(users).where(eq(users.id, newUser.id));
+        return res.status(500).json({ error: "Falha ao enviar email de verificação" });
+      }
+
+      return res.status(201).json({ 
+        requiresEmailVerification: true,
+        userId: newUser.id,
+        email: normalizedEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
+        message: "Conta criada! Verifique o seu email para ativar a conta."
+      });
     }
-    
-    res.status(201).json({ 
-      requiresEmailVerification: true,
-      userId: newUser.id,
-      email: email.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
-      message: "Conta criada! Verifique o seu email para ativar a conta."
-    });
+
+    const token = signJwt({ sub: newUser.username });
+    res.status(201).json({ token, user: { username: newUser.username, email: newUser.email } });
   });
 
   // Register - Step 2: Verify email
@@ -367,6 +391,10 @@ export async function registerRoutes(
     const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     if (!user) {
       return res.status(404).json({ error: "Utilizador não encontrado" });
+    }
+
+    if (!user.email) {
+      return res.status(400).json({ error: "Utilizador não tem email associado" });
     }
     
     if (user.emailVerified) {
@@ -401,6 +429,10 @@ export async function registerRoutes(
     if (!user) {
       return res.status(404).json({ error: "Utilizador não encontrado" });
     }
+
+    if (!user.email) {
+      return res.status(400).json({ error: "Utilizador não tem email associado" });
+    }
     
     const codeType = type === "register" ? "email_verify" : "login_2fa";
     const sent = await createAndSendVerificationCode(user.id, user.email, codeType);
@@ -418,11 +450,18 @@ export async function registerRoutes(
       return res.status(400).json({ error: "Email é obrigatório" });
     }
     
+    const normalizedEmail = email.toLowerCase().trim();
     const db = await getDb();
-    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim())).limit(1);
+    const [user] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
     
     // Always return success to prevent email enumeration attacks
     if (!user) {
+      return res.json({ 
+        message: "Se o email existir, receberá um código de recuperação"
+      });
+    }
+
+    if (!user.email) {
       return res.json({ 
         message: "Se o email existir, receberá um código de recuperação"
       });
@@ -485,6 +524,10 @@ export async function registerRoutes(
     if (!user) {
       return res.status(404).json({ error: "Utilizador não encontrado" });
     }
+
+    if (!user.email) {
+      return res.status(400).json({ error: "Utilizador não tem email associado" });
+    }
     
     const sent = await createAndSendVerificationCode(user.id, user.email, "password_reset");
     if (!sent) {
@@ -543,6 +586,9 @@ export async function registerRoutes(
     }
     
     const { username, email } = req.body || {};
+    const normalizedEmail =
+      typeof email === "string" ? email.trim().toLowerCase() : undefined;
+    const shouldClearEmail = normalizedEmail === "";
     
     // Validate
     if (username && username !== user.username) {
@@ -552,8 +598,8 @@ export async function registerRoutes(
       }
     }
     
-    if (email && email !== user.email) {
-      const [existingEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    if (normalizedEmail && normalizedEmail !== user.email) {
+      const [existingEmail] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
       if (existingEmail) {
         return res.status(409).json({ error: "Email já registado" });
       }
@@ -562,7 +608,11 @@ export async function registerRoutes(
     // Update
     const updates: any = {};
     if (username) updates.username = username;
-    if (email) updates.email = email;
+    if (shouldClearEmail) {
+      updates.email = null;
+    } else if (normalizedEmail) {
+      updates.email = normalizedEmail;
+    }
     
     if (Object.keys(updates).length > 0) {
       await db.update(users).set(updates).where(eq(users.id, user.id));
@@ -934,14 +984,21 @@ export async function registerRoutes(
       
       const { username, email, password, role = "member", storePermissions = [] } = req.body || {};
       
-      if (!username || !email || !password) {
-        return res.status(400).json({ error: "Username, email e password são obrigatórios" });
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username e password são obrigatórios" });
       }
+
+      const normalizedEmail =
+        typeof email === "string" && email.trim() !== ""
+          ? email.trim().toLowerCase()
+          : null;
       
       // Validate email
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({ error: "Email inválido" });
+      if (normalizedEmail) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(normalizedEmail)) {
+          return res.status(400).json({ error: "Email inválido" });
+        }
       }
       
       // Check if username exists
@@ -951,9 +1008,11 @@ export async function registerRoutes(
       }
       
       // Check if email exists
-      const [existingEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-      if (existingEmail) {
-        return res.status(409).json({ error: "Email já registado" });
+      if (normalizedEmail) {
+        const [existingEmail] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
+        if (existingEmail) {
+          return res.status(409).json({ error: "Email já registado" });
+        }
       }
       
       const passwordHash = hashPassword(password);
@@ -961,7 +1020,7 @@ export async function registerRoutes(
       // Create user (already verified since admin is creating)
       const [newUser] = await db.insert(users).values({
         username,
-        email,
+        email: normalizedEmail,
         passwordHash,
         emailVerified: true, // Admin-created users are auto-verified
       }).returning();
@@ -1231,9 +1290,9 @@ export async function registerRoutes(
         normalizedPath = `hacsfiles/${rest}`;
         console.log("[HA Static] Mapped homeassistant/www/ asset:", path, "->", normalizedPath);
       } else if (normalizedPath.startsWith('local/')) {
-        const rest = normalizedPath.substring('local/'.length);
-        normalizedPath = `hacsfiles/${rest}`;
-        console.log("[HA Static] Mapped local asset to hacsfiles:", path, "->", normalizedPath);
+        // Keep local/ paths as-is - these are user files in config/www/
+        // NOT HACS resources, served directly by HA at /local/
+        console.log("[HA Static] Keeping local/ path:", normalizedPath);
       } else if (normalizedPath.startsWith('hacsfiles/')) {
         // Already in correct format, just log it
         console.log("[HA Static] Path already in hacsfiles format:", normalizedPath);
@@ -1484,9 +1543,10 @@ export async function registerRoutes(
             mappedPath = '/hacsfiles/' + pathAfterWww;
             console.log('[HA Proxy SW] Mapped homeassistant/www/ path:', path, '->', mappedPath);
           } else if (path.startsWith('/local/')) {
-            const pathAfterLocal = path.substring('/local/'.length);
-            mappedPath = '/hacsfiles/' + pathAfterLocal;
-            console.log('[HA Proxy SW] Mapped /local/ path:', path, '->', mappedPath);
+            // Keep /local/ path as-is - these are user files in config/www/
+            // NOT HACS resources, so don't map to /hacsfiles/
+            mappedPath = path; // Keep original: /local/pics/image.png
+            console.log('[HA Proxy SW] Keeping /local/ path:', path);
           }
           
           const proxyUrl = currentOrigin + '/api/ha/static' + mappedPath + (url.search || '');
@@ -1832,11 +1892,11 @@ export async function registerRoutes(
         // homeassistant/www/community/ -> /api/ha/static/hacsfiles/community/
         return `="/api/ha/static/hacsfiles/${type}/${path}"`;
       })
-      // Map /local/ paths (also HACS resources)
+      // Map /local/ paths - these are user files in config/www/, NOT HACS
       .replace(/=["']\/local\/([^"']+)["']/gi, (match, path) => {
         console.log("[HA Dashboard] Mapping /local/ path:", match);
-        // local/ -> /api/ha/static/hacsfiles/
-        return `="/api/ha/static/hacsfiles/${path}"`;
+        // local/ -> /api/ha/static/local/ (keep the /local/ prefix!)
+        return `="/api/ha/static/local/${path}"`;
       })
       // Replace relative asset paths to use our proxy
       // In Netlify, we need to route through /api/ha/static/* to go through serverless function
@@ -2319,10 +2379,9 @@ app-drawer-layout {
                 return rewritten;
               }
               
-              // Map /local/ paths (HACS resources)
+              // Map /local/ paths - these are user files in config/www/, NOT HACS
               if (url.startsWith('/local/')) {
-                const pathAfterLocal = url.substring('/local/'.length);
-                const rewritten = '/api/ha/static/hacsfiles/' + pathAfterLocal;
+                const rewritten = '/api/ha/static' + url; // Keep as /api/ha/static/local/...
                 console.log('[HA Proxy] Mapping /local/ path:', url, '->', rewritten);
                 return rewritten;
               }
@@ -2480,7 +2539,7 @@ app-drawer-layout {
                 
                 // If it's a resource, ALWAYS proxy it
                 if (isResourceFile || isResourcePath) {
-                  // Use rewriteUrl to handle special path mappings (like /local/ -> /hacsfiles/)
+                  // Use rewriteUrl to handle special path mappings
                   const rewrittenPath = rewriteUrl(path);
                   const proxyUrl = currentOrigin + rewrittenPath;
                   console.log('[HA Proxy] Fetch: INTERCEPTING resource (fallback):', {

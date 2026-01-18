@@ -437,7 +437,7 @@ function OrgCard({ org, onUpdate }: OrgCardProps) {
                               {member.username}
                             </p>
                             <p className="text-xs text-muted-foreground truncate">
-                              {member.email}
+                              {member.email || tr("Sem email", "No email")}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">

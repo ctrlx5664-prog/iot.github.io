@@ -11,9 +11,12 @@ import {
 } from "@/components/ui/card";
 import { setToken, clearToken, apiUrl } from "@/lib/auth";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "@/lib/i18n";
 
 export default function Register() {
   const [, navigate] = useLocation();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -33,12 +36,12 @@ export default function Register() {
     setError(null);
 
     if (password !== confirmPassword) {
-      setError("As palavras-passe não coincidem");
+      setError(tr("As palavras-passe não coincidem", "Passwords do not match"));
       return;
     }
 
     if (password.length < 6) {
-      setError("A palavra-passe deve ter pelo menos 6 caracteres");
+      setError(tr("A palavra-passe deve ter pelo menos 6 caracteres", "Password must be at least 6 characters"));
       return;
     }
 
@@ -47,12 +50,16 @@ export default function Register() {
       const res = await fetch(apiUrl("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, password }),
+        body: JSON.stringify({
+          username,
+          password,
+          email: email.trim() || undefined,
+        }),
       });
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Registo falhou");
+        throw new Error(data.error || tr("Registo falhou", "Registration failed"));
       }
 
       if (data.requiresEmailVerification) {
@@ -66,7 +73,7 @@ export default function Register() {
       }
     } catch (err: any) {
       clearToken();
-      setError(err?.message || "Registo falhou");
+      setError(err?.message || tr("Registo falhou", "Registration failed"));
     } finally {
       setLoading(false);
     }
@@ -85,7 +92,7 @@ export default function Register() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Código inválido");
+        throw new Error(data.error || tr("Código inválido", "Invalid code"));
       }
 
       if (data.token) {
@@ -94,7 +101,7 @@ export default function Register() {
         window.location.href = "/dashboard";
       }
     } catch (err: any) {
-      setError(err?.message || "Verificação falhou");
+      setError(err?.message || tr("Verificação falhou", "Verification failed"));
     } finally {
       setLoading(false);
     }
@@ -111,7 +118,7 @@ export default function Register() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Falha ao reenviar");
+        throw new Error(data.error || tr("Falha ao reenviar", "Failed to resend"));
       }
     } catch (err: any) {
       setError(err?.message);
@@ -125,15 +132,15 @@ export default function Register() {
       <div className="min-h-screen flex items-center justify-center bg-muted/50">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Verificar Email</CardTitle>
+            <CardTitle>{tr("Verificar Email", "Verify Email")}</CardTitle>
             <CardDescription>
-              Enviámos um código de 6 dígitos para {maskedEmail}
+              {tr("Enviámos um código de 6 dígitos para", "We sent a 6-digit code to")} {maskedEmail}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={onSubmitVerification}>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Código de Verificação</label>
+                <label className="text-sm font-medium">{tr("Código de Verificação", "Verification Code")}</label>
                 <Input
                   type="text"
                   inputMode="numeric"
@@ -157,10 +164,10 @@ export default function Register() {
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    A verificar...
+                    {tr("A verificar...", "Verifying...")}
                   </>
                 ) : (
-                  "Verificar Email"
+                  tr("Verificar Email", "Verify Email")
                 )}
               </Button>
               <div className="text-center">
@@ -170,7 +177,7 @@ export default function Register() {
                   onClick={resendCode}
                   disabled={resending}
                 >
-                  {resending ? "A enviar..." : "Reenviar código"}
+                  {resending ? tr("A enviar...", "Sending...") : tr("Reenviar código", "Resend code")}
                 </button>
               </div>
             </form>
@@ -184,32 +191,31 @@ export default function Register() {
     <div className="min-h-screen flex items-center justify-center bg-muted/50">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Criar Conta</CardTitle>
-          <CardDescription>Registe uma nova conta.</CardDescription>
+          <CardTitle>{tr("Criar Conta", "Create Account")}</CardTitle>
+          <CardDescription>{tr("Registe uma nova conta.", "Register a new account.")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmitRegister}>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nome de utilizador</label>
+              <label className="text-sm font-medium">{tr("Nome de utilizador", "Username")}</label>
               <Input
                 value={username}
                 onChange={(e: any) => setUsername(e.target.value)}
-                placeholder="utilizador"
+                placeholder={tr("utilizador", "username")}
                 required
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email</label>
+              <label className="text-sm font-medium">{tr("Email (opcional)", "Email (optional)")}</label>
               <Input
                 type="email"
                 value={email}
                 onChange={(e: any) => setEmail(e.target.value)}
-                placeholder="email@exemplo.com"
-                required
+                placeholder={tr("email@exemplo.com", "email@example.com")}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Palavra-passe</label>
+              <label className="text-sm font-medium">{tr("Palavra-passe", "Password")}</label>
               <Input
                 type="password"
                 value={password}
@@ -219,7 +225,7 @@ export default function Register() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Confirmar palavra-passe</label>
+              <label className="text-sm font-medium">{tr("Confirmar palavra-passe", "Confirm password")}</label>
               <Input
                 type="password"
                 value={confirmPassword}
@@ -233,20 +239,20 @@ export default function Register() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  A criar...
+                  {tr("A criar...", "Creating...")}
                 </>
               ) : (
-                "Criar Conta"
+                tr("Criar Conta", "Create Account")
               )}
             </Button>
             <p className="text-sm text-center text-muted-foreground">
-              Já tem conta?{" "}
+              {tr("Já tem conta?", "Already have an account?")}{" "}
               <button
                 type="button"
                 className="text-primary underline hover:text-primary/80"
                 onClick={() => navigate("/login")}
               >
-                Entre aqui
+                {tr("Entre aqui", "Login here")}
               </button>
             </p>
           </form>
