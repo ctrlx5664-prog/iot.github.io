@@ -442,39 +442,7 @@ export function AppSidebar() {
             </CollapsibleContent>
           </SidebarGroup>
         </Collapsible>
-
-        {/* ═══════════════════════════════════════════════════════════════ */}
-        {/* ADMIN SECTION */}
-        {/* ═══════════════════════════════════════════════════════════════ */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs uppercase tracking-wider text-muted-foreground/70 font-semibold">
-            <span className="flex items-center gap-2">
-              <Shield className="w-4 h-4" />
-              {tr("Sistema", "System")}
-            </span>
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/access-groups"}>
-                  <Link href="/access-groups">
-                    <Shield className="w-4 h-4" />
-                    <span>{tr("Grupos de Acesso", "Access Groups")}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/organizations"}>
-                  <Link href="/organizations">
-                    <Settings className="w-4 h-4" />
-                    <span>{tr("Organização", "Organization")}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
+              </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
         {/* Quick Stats */}
