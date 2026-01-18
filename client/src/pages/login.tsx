@@ -11,9 +11,12 @@ import {
 } from "@/components/ui/card";
 import { setToken, clearToken, apiUrl } from "@/lib/auth";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "@/lib/i18n";
 
 export default function Login() {
   const [, navigate] = useLocation();
+  const { language } = useTranslation();
+  const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +47,7 @@ export default function Login() {
           navigate(`/verify-email?userId=${data.userId}`);
           return;
         }
-        throw new Error(data.error || "Login falhou");
+        throw new Error(data.error || tr("Login falhou", "Login failed"));
       }
 
       if (data.requires2FA) {
@@ -59,7 +62,7 @@ export default function Login() {
       }
     } catch (err: any) {
       clearToken();
-      setError(err?.message || "Login falhou");
+      setError(err?.message || tr("Login falhou", "Login failed"));
     } finally {
       setLoading(false);
     }
@@ -78,7 +81,7 @@ export default function Login() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Código inválido");
+        throw new Error(data.error || tr("Código inválido", "Invalid code"));
       }
 
       if (data.token) {
@@ -87,7 +90,7 @@ export default function Login() {
         window.location.href = "/dashboard";
       }
     } catch (err: any) {
-      setError(err?.message || "Verificação falhou");
+      setError(err?.message || tr("Verificação falhou", "Verification failed"));
     } finally {
       setLoading(false);
     }
@@ -104,7 +107,7 @@ export default function Login() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Falha ao reenviar");
+        throw new Error(data.error || tr("Falha ao reenviar", "Failed to resend"));
       }
     } catch (err: any) {
       setError(err?.message);
@@ -118,15 +121,15 @@ export default function Login() {
       <div className="min-h-screen flex items-center justify-center bg-muted/50">
         <Card className="w-full max-w-sm">
           <CardHeader>
-            <CardTitle>Verificação de Segurança</CardTitle>
+            <CardTitle>{tr("Verificação de Segurança", "Security Verification")}</CardTitle>
             <CardDescription>
-              Enviámos um código de 6 dígitos para {maskedEmail}
+              {tr("Enviámos um código de 6 dígitos para", "We sent a 6-digit code to")} {maskedEmail}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={onSubmit2FA}>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Código de Verificação</label>
+                <label className="text-sm font-medium">{tr("Código de Verificação", "Verification Code")}</label>
                 <Input
                   type="text"
                   inputMode="numeric"
@@ -150,10 +153,10 @@ export default function Login() {
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    A verificar...
+                    {tr("A verificar...", "Verifying...")}
                   </>
                 ) : (
-                  "Verificar"
+                  tr("Verificar", "Verify")
                 )}
               </Button>
               <div className="text-center">
@@ -163,7 +166,7 @@ export default function Login() {
                   onClick={resendCode}
                   disabled={resending}
                 >
-                  {resending ? "A enviar..." : "Reenviar código"}
+                  {resending ? tr("A enviar...", "Sending...") : tr("Reenviar código", "Resend code")}
                 </button>
               </div>
               <div className="text-center">
@@ -176,7 +179,7 @@ export default function Login() {
                     setError(null);
                   }}
                 >
-                  ← Voltar ao login
+                  {tr("← Voltar ao login", "← Back to login")}
                 </button>
               </div>
             </form>
@@ -190,24 +193,24 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-muted/50">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Entrar</CardTitle>
+          <CardTitle>{tr("Entrar", "Login")}</CardTitle>
           <CardDescription>
-            Introduza as suas credenciais para continuar.
+            {tr("Introduza as suas credenciais para continuar.", "Enter your credentials to continue.")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmitCredentials}>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nome de utilizador</label>
+              <label className="text-sm font-medium">{tr("Nome de utilizador", "Username")}</label>
               <Input
                 value={username}
                 onChange={(e: any) => setUsername(e.target.value)}
-                placeholder="utilizador"
+                placeholder={tr("utilizador", "username")}
                 required
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Palavra-passe</label>
+              <label className="text-sm font-medium">{tr("Palavra-passe", "Password")}</label>
               <Input
                 type="password"
                 value={password}
@@ -221,20 +224,29 @@ export default function Login() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  A entrar...
+                  {tr("A entrar...", "Logging in...")}
                 </>
               ) : (
-                "Entrar"
+                tr("Entrar", "Login")
               )}
             </Button>
+            <div className="text-center">
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-primary"
+                onClick={() => navigate("/forgot-password")}
+              >
+                {tr("Esqueceu a palavra-passe?", "Forgot your password?")}
+              </button>
+            </div>
             <p className="text-sm text-center text-muted-foreground">
-              Ainda não tem conta?{" "}
+              {tr("Ainda não tem conta?", "Don't have an account?")}{" "}
               <button
                 type="button"
                 className="text-primary underline hover:text-primary/80"
                 onClick={() => navigate("/register")}
               >
-                Registe-se aqui
+                {tr("Registe-se aqui", "Sign up here")}
               </button>
             </p>
           </form>

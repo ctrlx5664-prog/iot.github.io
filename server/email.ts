@@ -61,16 +61,20 @@ export function generateVerificationCode(): string {
 export function sendVerificationCodeEmail(
   to: string,
   code: string,
-  type: "register" | "login"
+  type: "register" | "login" | "password_reset"
 ): Promise<boolean> {
   const subject =
     type === "register"
       ? "Verifique o seu email - CtrlX"
+      : type === "password_reset"
+      ? "Recuperar palavra-passe - CtrlX"
       : "Código de verificação - CtrlX";
 
   const actionText =
     type === "register"
       ? "para completar o seu registo"
+      : type === "password_reset"
+      ? "para redefinir a sua palavra-passe"
       : "para iniciar sessão na sua conta";
 
   const html = `

@@ -199,7 +199,7 @@ export async function registerRoutes(
   async function createAndSendVerificationCode(
     userId: string,
     email: string,
-    type: "email_verify" | "login_2fa"
+    type: "email_verify" | "login_2fa" | "password_reset"
   ): Promise<boolean> {
     const db = await getDb();
     const code = generateVerificationCode();
@@ -212,7 +212,7 @@ export async function registerRoutes(
       expiresAt,
     });
     
-    const emailType = type === "email_verify" ? "register" : "login";
+    const emailType = type === "email_verify" ? "register" : type === "password_reset" ? "password_reset" : "login";
     return sendVerificationCodeEmail(email, code, emailType);
   }
   
@@ -220,7 +220,7 @@ export async function registerRoutes(
   async function verifyCode(
     userId: string,
     code: string,
-    type: "email_verify" | "login_2fa"
+    type: "email_verify" | "login_2fa" | "password_reset"
   ): Promise<boolean> {
     const db = await getDb();
     const now = new Date();
@@ -404,6 +404,89 @@ export async function registerRoutes(
     
     const codeType = type === "register" ? "email_verify" : "login_2fa";
     const sent = await createAndSendVerificationCode(user.id, user.email, codeType);
+    if (!sent) {
+      return res.status(500).json({ error: "Falha ao enviar código" });
+    }
+    
+    res.json({ message: "Novo código enviado" });
+  });
+
+  // Password Reset - Step 1: Request reset code
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) {
+      return res.status(400).json({ error: "Email é obrigatório" });
+    }
+    
+    const db = await getDb();
+    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim())).limit(1);
+    
+    // Always return success to prevent email enumeration attacks
+    if (!user) {
+      return res.json({ 
+        message: "Se o email existir, receberá um código de recuperação"
+      });
+    }
+    
+    const sent = await createAndSendVerificationCode(user.id, user.email, "password_reset");
+    if (!sent) {
+      return res.status(500).json({ error: "Falha ao enviar email de recuperação" });
+    }
+    
+    res.json({ 
+      success: true,
+      userId: user.id,
+      email: user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
+      message: "Código de recuperação enviado para o seu email"
+    });
+  });
+
+  // Password Reset - Step 2: Verify code and set new password
+  app.post("/api/auth/reset-password", async (req, res) => {
+    const { userId, code, newPassword } = req.body || {};
+    if (!userId || !code || !newPassword) {
+      return res.status(400).json({ error: "userId, código e nova password são obrigatórios" });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "A password deve ter pelo menos 6 caracteres" });
+    }
+    
+    const db = await getDb();
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) {
+      return res.status(404).json({ error: "Utilizador não encontrado" });
+    }
+    
+    const valid = await verifyCode(userId, code, "password_reset");
+    if (!valid) {
+      return res.status(401).json({ error: "Código inválido ou expirado" });
+    }
+    
+    // Update password
+    const newPasswordHash = hashPassword(newPassword);
+    await db.update(users).set({ passwordHash: newPasswordHash }).where(eq(users.id, userId));
+    
+    res.json({ 
+      success: true,
+      message: "Password alterada com sucesso! Pode agora iniciar sessão."
+    });
+  });
+
+  // Resend password reset code
+  app.post("/api/auth/resend-reset-code", async (req, res) => {
+    const { userId } = req.body || {};
+    if (!userId) {
+      return res.status(400).json({ error: "userId é obrigatório" });
+    }
+    
+    const db = await getDb();
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) {
+      return res.status(404).json({ error: "Utilizador não encontrado" });
+    }
+    
+    const sent = await createAndSendVerificationCode(user.id, user.email, "password_reset");
     if (!sent) {
       return res.status(500).json({ error: "Falha ao enviar código" });
     }
