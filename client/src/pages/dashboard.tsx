@@ -24,6 +24,8 @@ import {
   Eye,
   Settings,
   BarChart3,
+  Sun,
+  Moon,
 } from "lucide-react";
 import type { Company, Location, Light, Tv } from "@shared/schema";
 import { Link } from "wouter";
@@ -31,6 +33,7 @@ import { useTranslation } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { QuickActionsScroll, QuickActionChip } from "@/components/mobile-swipe-cards";
 
 // Mock recent activity
 function generateMockActivity() {
@@ -125,43 +128,73 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 md:space-y-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">{tr("Dashboard", "Dashboard")}</h1>
-          <p className="text-muted-foreground mt-1">
-            {tr("Gerir luzes e dispositivos das suas lojas", "Manage lights and devices for your stores")}
-          </p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">{tr("Dashboard", "Dashboard")}</h1>
+            <p className="text-muted-foreground text-sm md:text-base mt-1">
+              {tr("Gerir luzes e dispositivos das suas lojas", "Manage lights and devices for your stores")}
+            </p>
+          </div>
+          {/* Desktop Actions */}
+          <div className="hidden md:flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-2" asChild>
+              <Link href="/stores">
+                <Plus className="w-4 h-4" />
+                {tr("Nova Loja", "New Store")}
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => toggleStoreLightsMutation.mutate({ turnOn: true })}
+              disabled={toggleStoreLightsMutation.isPending || globalStats.totalLights === 0}
+            >
+              <Power className="w-4 h-4 text-green-500" />
+              {tr("Ligar Todas", "All On")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => toggleStoreLightsMutation.mutate({ turnOn: false })}
+              disabled={toggleStoreLightsMutation.isPending || globalStats.totalLights === 0}
+            >
+              <PowerOff className="w-4 h-4 text-red-500" />
+              {tr("Desligar Todas", "All Off")}
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2" asChild>
-            <Link href="/stores">
-              <Plus className="w-4 h-4" />
-              {tr("Nova Loja", "New Store")}
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
+
+        {/* Mobile Quick Actions - Horizontal Scroll */}
+        <QuickActionsScroll>
+          <QuickActionChip
+            icon={<Power className="w-4 h-4" />}
+            label={tr("Ligar Todas", "All On")}
+            variant="success"
             onClick={() => toggleStoreLightsMutation.mutate({ turnOn: true })}
             disabled={toggleStoreLightsMutation.isPending || globalStats.totalLights === 0}
-          >
-            <Power className="w-4 h-4 text-green-500" />
-            {tr("Ligar Todas", "All On")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
+          />
+          <QuickActionChip
+            icon={<PowerOff className="w-4 h-4" />}
+            label={tr("Desligar", "All Off")}
+            variant="danger"
             onClick={() => toggleStoreLightsMutation.mutate({ turnOn: false })}
             disabled={toggleStoreLightsMutation.isPending || globalStats.totalLights === 0}
-          >
-            <PowerOff className="w-4 h-4 text-red-500" />
-            {tr("Desligar Todas", "All Off")}
-          </Button>
-        </div>
+          />
+          <QuickActionChip
+            icon={<Sun className="w-4 h-4" />}
+            label={tr("Modo Dia", "Day Mode")}
+            variant="warning"
+          />
+          <QuickActionChip
+            icon={<Moon className="w-4 h-4" />}
+            label={tr("Modo Noite", "Night Mode")}
+          />
+        </QuickActionsScroll>
       </div>
 
       {/* Quick Stats Row */}

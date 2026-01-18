@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { MobileBottomNav, MobileHeader, mobileStyles } from "@/components/mobile-nav";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -177,10 +178,14 @@ function AppContent() {
   // Authenticated app shell
   const shell = (
     <SidebarProvider style={style}>
+      {/* Mobile styles for safe areas and touch targets */}
+      <style>{mobileStyles}</style>
+      
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex items-center justify-between px-4 py-2 border-b border-border bg-background">
+          {/* Desktop Header */}
+          <header className="hidden md:flex items-center justify-between px-4 py-2 border-b border-border bg-background">
             <div className="flex items-center gap-2">
               <SidebarTrigger data-testid="button-sidebar-toggle" />
             </div>
@@ -195,13 +200,20 @@ function AppContent() {
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex-1 overflow-y-auto">
-            <div className="max-w-7xl mx-auto px-6 py-6">
+          
+          {/* Mobile Header */}
+          <MobileHeader />
+          
+          <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+            <div className="max-w-7xl mx-auto px-4 py-4 md:px-6 md:py-6">
               <WouterRouter hook={routerHook}>
                 <AuthenticatedRoutes />
               </WouterRouter>
             </div>
           </main>
+          
+          {/* Mobile Bottom Navigation */}
+          <MobileBottomNav />
         </div>
       </div>
     </SidebarProvider>
