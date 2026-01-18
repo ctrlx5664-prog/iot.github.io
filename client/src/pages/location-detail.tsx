@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Lightbulb, Monitor, Plus, LayoutDashboard, Maximize2, Minimize2, RefreshCw, Loader2, Zap } from "lucide-react";
+import { Lightbulb, Monitor, Plus, LayoutDashboard, Maximize2, Minimize2, RefreshCw, Loader2, Zap, RotateCcw, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Location, Light, Tv, Video, Company, InsertLight, InsertTv } from "@shared/schema";
@@ -45,6 +45,26 @@ export default function LocationDetail() {
   const [isDashboardLoading, setIsDashboardLoading] = useState(true);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState(tr("A inicializar...", "Initializing..."));
+  const [isMobilePortrait, setIsMobilePortrait] = useState(false);
+
+  // Detect mobile portrait mode
+  useEffect(() => {
+    const checkOrientation = () => {
+      const isMobile = window.innerWidth < 768 || 
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isPortrait = window.innerHeight > window.innerWidth;
+      setIsMobilePortrait(isMobile && isPortrait);
+    };
+
+    checkOrientation();
+    window.addEventListener("resize", checkOrientation);
+    window.addEventListener("orientationchange", checkOrientation);
+    
+    return () => {
+      window.removeEventListener("resize", checkOrientation);
+      window.removeEventListener("orientationchange", checkOrientation);
+    };
+  }, []);
 
   // Reset dashboard loading state when location changes
   useEffect(() => {
@@ -268,8 +288,56 @@ export default function LocationDetail() {
             </CardHeader>
             <CardContent className="p-0">
               <div className={`relative overflow-hidden bg-background ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-[600px]'}`}>
+                {/* Mobile Portrait Warning */}
+                {isMobilePortrait && (
+                  <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-background">
+                    <div className="flex flex-col items-center gap-6 p-8 text-center">
+                      {/* Animated phone icon */}
+                      <div className="relative">
+                        <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                          <Smartphone className="w-12 h-12 text-white" />
+                        </div>
+                        {/* Rotate arrow */}
+                        <div className="absolute -right-4 top-1/2 -translate-y-1/2">
+                          <RotateCcw className="w-8 h-8 text-amber-500 animate-spin" style={{ animationDuration: '3s' }} />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h2 className="text-xl font-bold">
+                          {tr("Rode o seu telemóvel", "Rotate your phone")}
+                        </h2>
+                        <p className="text-muted-foreground text-sm max-w-xs">
+                          {tr(
+                            "Para uma melhor experiência, por favor rode o seu dispositivo para a posição horizontal (landscape).",
+                            "For a better experience, please rotate your device to landscape mode."
+                          )}
+                        </p>
+                      </div>
+
+                      {/* Landscape illustration */}
+                      <div className="flex items-center gap-4 text-muted-foreground">
+                        <div className="w-8 h-12 border-2 border-current rounded-md opacity-50" />
+                        <RotateCcw className="w-5 h-5" />
+                        <div className="w-14 h-8 border-2 border-amber-500 rounded-md bg-amber-500/10" />
+                      </div>
+                    </div>
+
+                    {/* Subtle background pattern */}
+                    <div className="absolute inset-0 -z-10 opacity-5">
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          backgroundImage: `radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)`,
+                          backgroundSize: "40px 40px",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Custom Loading Overlay - hides HA branding during load */}
-                {isDashboardLoading && (
+                {isDashboardLoading && !isMobilePortrait && (
                   <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background">
                     <div className="flex flex-col items-center gap-6">
                       {/* Brand logo */}
@@ -324,7 +392,7 @@ export default function LocationDetail() {
                     width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
                     height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
                     transform: `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`,
-                    opacity: isDashboardLoading ? 0 : 1,
+                    opacity: isDashboardLoading || isMobilePortrait ? 0 : 1,
                     transition: "opacity 0.3s ease-in-out",
                   }}
                 />

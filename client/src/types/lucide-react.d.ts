@@ -49,5 +49,7 @@ declare module "lucide-react" {
   export const Clock: Icon;
   export const ChevronRight: Icon;
   export const MonitorSmartphone: Icon;
+  export const RotateCcw: Icon;
+  export const Smartphone: Icon;
 }
 
