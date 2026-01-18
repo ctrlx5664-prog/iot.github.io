@@ -337,15 +337,6 @@ export function AppSidebar() {
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={location === "/ha"}>
-                      <Link href="/ha">
-                        <LayoutDashboard className="w-4 h-4" />
-                        <span>{tr("Painel HA", "HA Panel")}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             </CollapsibleContent>
