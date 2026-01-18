@@ -1259,6 +1259,13 @@ export async function registerRoutes(
     const path = (req.params as any)[0] || "";
     const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
     
+    // HARDCODED TEST: Redirect /local/pics/imagenobrand.png directly to HA
+    if (path === "local/pics/imagenobrand.png" || path.startsWith("local/pics/imagenobrand.png")) {
+      const directUrl = "https://ctrlxprod.diogomendes.me/local/pics/imagenobrand.png" + queryString;
+      console.log("[HA Static] HARDCODED REDIRECT:", path, "->", directUrl);
+      return res.redirect(302, directUrl);
+    }
+    
     console.log("[HA Static] Request received:", {
       method: req.method,
       path,
