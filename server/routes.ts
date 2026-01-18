@@ -1517,7 +1517,7 @@ export async function registerRoutes(
                                path.startsWith('/static/') ||
                                path.startsWith('/homeassistant/') ||
                                path.startsWith('/hacsfiles/') ||
-                               path.startsWith('/local/') ||
+                               // NOTE: /local/ is NOT proxied - loaded directly from HA for images
                                path.startsWith('/auth/') ||
                                path === '/manifest.json' ||
                                path.startsWith('/service_worker.js');
@@ -1542,12 +1542,8 @@ export async function registerRoutes(
             const pathAfterWww = path.substring('/homeassistant/www/'.length);
             mappedPath = '/hacsfiles/' + pathAfterWww;
             console.log('[HA Proxy SW] Mapped homeassistant/www/ path:', path, '->', mappedPath);
-          } else if (path.startsWith('/local/')) {
-            // Keep /local/ path as-is - these are user files in config/www/
-            // NOT HACS resources, so don't map to /hacsfiles/
-            mappedPath = path; // Keep original: /local/pics/image.png
-            console.log('[HA Proxy SW] Keeping /local/ path:', path);
           }
+          // NOTE: /local/ paths are NOT intercepted - they load directly from HA
           
           const proxyUrl = currentOrigin + '/api/ha/static' + mappedPath + (url.search || '');
           
@@ -1892,12 +1888,8 @@ export async function registerRoutes(
         // homeassistant/www/community/ -> /api/ha/static/hacsfiles/community/
         return `="/api/ha/static/hacsfiles/${type}/${path}"`;
       })
-      // Map /local/ paths - these are user files in config/www/, NOT HACS
-      .replace(/=["']\/local\/([^"']+)["']/gi, (match, path) => {
-        console.log("[HA Dashboard] Mapping /local/ path:", match);
-        // local/ -> /api/ha/static/local/ (keep the /local/ prefix!)
-        return `="/api/ha/static/local/${path}"`;
-      })
+      // NOTE: /local/ paths are NOT rewritten - they load directly from HA
+      // This allows images and user files to bypass the proxy
       // Replace relative asset paths to use our proxy
       // In Netlify, we need to route through /api/ha/static/* to go through serverless function
       // Replace relative URLs - use proxy to avoid CORS issues
@@ -2379,12 +2371,8 @@ app-drawer-layout {
                 return rewritten;
               }
               
-              // Map /local/ paths - these are user files in config/www/, NOT HACS
-              if (url.startsWith('/local/')) {
-                const rewritten = '/api/ha/static' + url; // Keep as /api/ha/static/local/...
-                console.log('[HA Proxy] Mapping /local/ path:', url, '->', rewritten);
-                return rewritten;
-              }
+              // NOTE: /local/ paths are NOT rewritten - they load directly from HA
+              // This allows images and user files to be served without proxy
               
               // Absolute URLs pointing to HA - convert to proxy
               if (haBaseUrlValue && url.startsWith(haBaseUrlValue)) {
@@ -2409,8 +2397,8 @@ app-drawer-layout {
                   const isResourcePath = path.startsWith('/frontend_latest/') || 
                                          path.startsWith('/static/') ||
                                          path.startsWith('/homeassistant/') ||
-                                         path.startsWith('/hacsfiles/') ||
-                                         path.startsWith('/local/');
+                                         path.startsWith('/hacsfiles/');
+                                         // NOTE: /local/ NOT included - loads directly from HA
                   
                   if (isResourceFile || isResourcePath) {
                     const rewritten = '/api/ha/static' + path;
@@ -2436,8 +2424,8 @@ app-drawer-layout {
                       const isResourcePath = path.startsWith('/frontend_latest/') || 
                                              path.startsWith('/static/') ||
                                              path.startsWith('/homeassistant/') ||
-                                             path.startsWith('/hacsfiles/') ||
-                                             path.startsWith('/local/');
+                                             path.startsWith('/hacsfiles/');
+                                             // NOTE: /local/ NOT included - loads directly from HA
                       
                       if (isResourceFile || isResourcePath) {
                         const rewritten = '/api/ha/static' + path;
@@ -2534,7 +2522,7 @@ app-drawer-layout {
                                        path.startsWith('/static/') ||
                                        path.startsWith('/homeassistant/') ||
                                        path.startsWith('/hacsfiles/') ||
-                                       path.startsWith('/local/') ||
+                                       // NOTE: /local/ NOT included - loads directly from HA
                                        path === '/manifest.json';
                 
                 // If it's a resource, ALWAYS proxy it
@@ -2567,8 +2555,8 @@ app-drawer-layout {
                   const isResourcePath = path.startsWith('/frontend_latest/') || 
                                          path.startsWith('/static/') ||
                                          path.startsWith('/homeassistant/') ||
-                                         path.startsWith('/hacsfiles/') ||
-                                         path.startsWith('/local/');
+                                         path.startsWith('/hacsfiles/');
+                                         // NOTE: /local/ NOT included - loads directly from HA
                   
                   if (isResourceFile || isResourcePath) {
                     // Use rewriteUrl to handle special path mappings
@@ -2623,8 +2611,8 @@ app-drawer-layout {
                   const isResourcePath = path.startsWith('/frontend_latest/') || 
                                          path.startsWith('/static/') ||
                                          path.startsWith('/homeassistant/') ||
-                                         path.startsWith('/hacsfiles/') ||
-                                         path.startsWith('/local/');
+                                         path.startsWith('/hacsfiles/');
+                                         // NOTE: /local/ NOT included - loads directly from HA
                   
                   if (isResourceFile || isResourcePath) {
                     // Use rewriteUrl to handle special path mappings
