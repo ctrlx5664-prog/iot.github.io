@@ -254,7 +254,7 @@ export default function Members() {
           },
           body: JSON.stringify({
             username: newUserUsername,
-            email: newUserEmail,
+            email: newUserEmail.trim() || undefined,
             password: newUserPassword,
             role: newUserRole,
             storePermissions: Object.entries(newUserStorePermissions)
@@ -482,14 +482,13 @@ export default function Members() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="email">{tr("Email *", "Email *")}</Label>
+                          <Label htmlFor="email">{tr("Email (opcional)", "Email (optional)")}</Label>
                           <Input
                             id="email"
                             type="email"
                             value={newUserEmail}
                             onChange={(e) => setNewUserEmail(e.target.value)}
-                            placeholder={tr("email@exemplo.com", "email@example.com")}
-                            required
+                            placeholder={tr("email@exemplo.com (opcional)", "email@example.com (optional)")}
                           />
                         </div>
                       </div>
