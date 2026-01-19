@@ -136,14 +136,26 @@ const statusColors = {
   cancelled: "destructive",
 } as const;
 
+type Request = typeof mockRequests[0];
+
 export default function Requests() {
   const { language } = useTranslation();
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
+  const [requests, setRequests] = useState<Request[]>(mockRequests);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingRequest, setEditingRequest] = useState<Request | null>(null);
   const [activeTab, setActiveTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterType, setFilterType] = useState("all");
+  
+  // Form state
+  const [formTitle, setFormTitle] = useState("");
+  const [formType, setFormType] = useState("maintenance");
+  const [formPriority, setFormPriority] = useState("medium");
+  const [formStore, setFormStore] = useState("");
+  const [formLocation, setFormLocation] = useState("");
+  const [formDescription, setFormDescription] = useState("");
 
   const token = getToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -158,7 +170,68 @@ export default function Requests() {
     },
   });
 
-  const filteredRequests = mockRequests.filter((req) => {
+  // CRUD functions
+  const openCreateDialog = () => {
+    setFormTitle("");
+    setFormType("maintenance");
+    setFormPriority("medium");
+    setFormStore("");
+    setFormLocation("");
+    setFormDescription("");
+    setEditingRequest(null);
+    setIsCreateOpen(true);
+  };
+
+  const openEditDialog = (request: Request) => {
+    setFormTitle(request.title);
+    setFormType(request.type);
+    setFormPriority(request.priority);
+    setFormStore(request.store);
+    setFormLocation(request.location);
+    setFormDescription(request.description || "");
+    setEditingRequest(request);
+    setIsCreateOpen(true);
+  };
+
+  const saveRequest = () => {
+    if (!formTitle.trim() || !formStore) return;
+
+    const newRequest: Request = {
+      id: editingRequest?.id || `REQ-${String(Date.now()).slice(-6)}`,
+      title: formTitle.trim(),
+      type: formType,
+      priority: formPriority as "high" | "medium" | "low",
+      status: editingRequest?.status || "open",
+      store: companies.find(c => c.id === formStore)?.name || formStore,
+      location: formLocation.trim(),
+      createdBy: editingRequest?.createdBy || "Current User",
+      createdAt: editingRequest?.createdAt || new Date().toISOString(),
+      description: formDescription.trim(),
+      comments: editingRequest?.comments || 0,
+    };
+
+    if (editingRequest) {
+      setRequests((prev) => prev.map((r) => (r.id === editingRequest.id ? newRequest : r)));
+    } else {
+      setRequests((prev) => [...prev, newRequest]);
+    }
+
+    setIsCreateOpen(false);
+    setEditingRequest(null);
+  };
+
+  const deleteRequest = (id: string) => {
+    if (confirm(tr("Tem certeza que deseja eliminar este pedido?", "Are you sure you want to delete this request?"))) {
+      setRequests((prev) => prev.filter((r) => r.id !== id));
+    }
+  };
+
+  const closeDialog = () => {
+    setIsCreateOpen(false);
+    setEditingRequest(null);
+  };
+
+  const filteredRequests = requests.filter((req) => {
     if (activeTab !== "all" && req.status !== activeTab) return false;
     if (filterPriority !== "all" && req.priority !== filterPriority) return false;
     if (filterType !== "all" && req.type !== filterType) return false;
@@ -196,10 +269,10 @@ export default function Requests() {
   };
 
   const stats = {
-    open: mockRequests.filter((r) => r.status === "open").length,
-    inProgress: mockRequests.filter((r) => r.status === "in_progress").length,
-    completed: mockRequests.filter((r) => r.status === "completed").length,
-    total: mockRequests.length,
+    open: requests.filter((r) => r.status === "open").length,
+    inProgress: requests.filter((r) => r.status === "in_progress").length,
+    completed: requests.filter((r) => r.status === "completed").length,
+    total: requests.length,
   };
 
   return (
@@ -214,29 +287,39 @@ export default function Requests() {
             {tr("Gestão de pedidos de manutenção e suporte", "Management of maintenance and support requests")}
           </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <Dialog open={isCreateOpen} onOpenChange={closeDialog}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={openCreateDialog}>
               <Plus className="w-4 h-4 mr-2" />
               {tr("Novo Pedido", "New Request")}
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>{tr("Criar Novo Pedido", "Create New Request")}</DialogTitle>
+              <DialogTitle>
+                {editingRequest ? tr("Editar Pedido", "Edit Request") : tr("Criar Novo Pedido", "Create New Request")}
+              </DialogTitle>
               <DialogDescription>
-                {tr("Submeta um pedido de manutenção ou suporte", "Submit a maintenance or support request")}
+                {editingRequest
+                  ? tr("Edite os detalhes do pedido", "Edit request details")
+                  : tr("Submeta um pedido de manutenção ou suporte", "Submit a maintenance or support request")
+                }
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>{tr("Título", "Title")}</Label>
-                <Input placeholder={tr("Descreva brevemente o problema...", "Briefly describe the issue...")} />
+                <Label>{tr("Título", "Title")} *</Label>
+                <Input 
+                  placeholder={tr("Descreva brevemente o problema...", "Briefly describe the issue...")}
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  required
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{tr("Tipo", "Type")}</Label>
-                  <Select defaultValue="maintenance">
+                  <Select value={formType} onValueChange={setFormType}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -249,7 +332,7 @@ export default function Requests() {
                 </div>
                 <div className="space-y-2">
                   <Label>{tr("Prioridade", "Priority")}</Label>
-                  <Select defaultValue="medium">
+                  <Select value={formPriority} onValueChange={setFormPriority}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -263,8 +346,8 @@ export default function Requests() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>{tr("Loja", "Store")}</Label>
-                  <Select>
+                  <Label>{tr("Loja", "Store")} *</Label>
+                  <Select value={formStore} onValueChange={setFormStore}>
                     <SelectTrigger>
                       <SelectValue placeholder={tr("Selecionar loja", "Select store")} />
                     </SelectTrigger>
@@ -279,7 +362,11 @@ export default function Requests() {
                 </div>
                 <div className="space-y-2">
                   <Label>{tr("Localização", "Location")}</Label>
-                  <Input placeholder={tr("Ex: Vitrine 1", "Ex: Display 1")} />
+                  <Input 
+                    placeholder={tr("Ex: Vitrine 1", "Ex: Display 1")}
+                    value={formLocation}
+                    onChange={(e) => setFormLocation(e.target.value)}
+                  />
                 </div>
               </div>
               <div className="space-y-2">
@@ -287,15 +374,17 @@ export default function Requests() {
                 <Textarea
                   placeholder={tr("Descreva o problema em detalhe...", "Describe the issue in detail...")}
                   rows={4}
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
                 />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+              <Button variant="outline" onClick={closeDialog}>
                 {tr("Cancelar", "Cancel")}
               </Button>
-              <Button onClick={() => setIsCreateOpen(false)}>
-                {tr("Submeter", "Submit")}
+              <Button onClick={saveRequest} disabled={!formTitle.trim() || !formStore}>
+                {editingRequest ? tr("Guardar", "Save") : tr("Submeter", "Submit")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -459,8 +548,16 @@ export default function Requests() {
                               <MessageSquare className="w-4 h-4 mr-1" />
                               {request.comments}
                             </Button>
-                            <Button variant="outline" size="sm">
-                              {tr("Ver", "View")}
+                            <Button variant="outline" size="sm" onClick={() => openEditDialog(request)}>
+                              {tr("Editar", "Edit")}
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-red-500 hover:text-red-700"
+                              onClick={() => deleteRequest(request.id)}
+                            >
+                              <XCircle className="w-4 h-4" />
                             </Button>
                           </div>
                         </TableCell>

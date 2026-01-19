@@ -160,12 +160,21 @@ const mockGroups = [
   },
 ];
 
+type AccessGroup = typeof mockGroups[0];
+
 export default function AccessGroups() {
   const { language } = useTranslation();
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
+  const [groups, setGroups] = useState<AccessGroup[]>(mockGroups);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [editingGroup, setEditingGroup] = useState<typeof mockGroups[0] | null>(null);
+  const [editingGroup, setEditingGroup] = useState<AccessGroup | null>(null);
   const [expandedSections, setExpandedSections] = useState<string[]>(["lightControl", "stores"]);
+  
+  // Form state
+  const [formName, setFormName] = useState("");
+  const [formLevel, setFormLevel] = useState(5);
+  const [formDescription, setFormDescription] = useState("");
+  const [formPermissions, setFormPermissions] = useState<Record<string, boolean>>({});
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) =>
@@ -190,6 +199,87 @@ export default function AccessGroups() {
     }
   };
 
+  // Initialize permissions object with all features
+  const initPermissions = () => {
+    const perms: Record<string, boolean> = {};
+    Object.entries(permissionFeatures).forEach(([sectionKey, section]) => {
+      Object.entries(section.children).forEach(([featureKey]) => {
+        perms[`${sectionKey}.${featureKey}`] = false;
+      });
+    });
+    return perms;
+  };
+
+  // Open create dialog
+  const openCreateDialog = () => {
+    setFormName("");
+    setFormLevel(5);
+    setFormDescription("");
+    setFormPermissions(initPermissions());
+    setEditingGroup(null);
+    setIsCreateOpen(true);
+  };
+
+  // Open edit dialog
+  const openEditDialog = (group: AccessGroup) => {
+    setFormName(group.name);
+    setFormLevel(group.level);
+    setFormDescription(group.description);
+    setFormPermissions({ ...initPermissions(), ...group.permissions });
+    setEditingGroup(group);
+    setIsCreateOpen(true);
+  };
+
+  // Toggle permission
+  const togglePermission = (permKey: string) => {
+    setFormPermissions((prev) => ({
+      ...prev,
+      [permKey]: !prev[permKey],
+    }));
+  };
+
+  // Save group (create or update)
+  const saveGroup = () => {
+    if (!formName.trim()) return;
+
+    const newGroup: AccessGroup = {
+      id: editingGroup?.id || String(Date.now()),
+      name: formName.trim(),
+      level: formLevel,
+      description: formDescription.trim(),
+      usersCount: editingGroup?.usersCount || 0,
+      permissions: formPermissions,
+    };
+
+    if (editingGroup) {
+      // Update existing
+      setGroups((prev) => prev.map((g) => (g.id === editingGroup.id ? newGroup : g)));
+    } else {
+      // Create new
+      setGroups((prev) => [...prev, newGroup]);
+    }
+
+    setIsCreateOpen(false);
+    setEditingGroup(null);
+  };
+
+  // Delete group
+  const deleteGroup = (groupId: string) => {
+    if (confirm(tr("Tem certeza que deseja eliminar este grupo?", "Are you sure you want to delete this group?"))) {
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+    }
+  };
+
+  // Close dialog and reset form
+  const closeDialog = () => {
+    setIsCreateOpen(false);
+    setEditingGroup(null);
+    setFormName("");
+    setFormLevel(5);
+    setFormDescription("");
+    setFormPermissions(initPermissions());
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -202,29 +292,43 @@ export default function AccessGroups() {
             {tr("Gestão de permissões e níveis de acesso", "Management of permissions and access levels")}
           </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <Dialog open={isCreateOpen} onOpenChange={closeDialog}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={openCreateDialog}>
               <Plus className="w-4 h-4 mr-2" />
               {tr("Novo Grupo", "New Group")}
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{tr("Criar Grupo de Acesso", "Create Access Group")}</DialogTitle>
+              <DialogTitle>
+                {editingGroup ? tr("Editar Grupo de Acesso", "Edit Access Group") : tr("Criar Grupo de Acesso", "Create Access Group")}
+              </DialogTitle>
               <DialogDescription>
-                {tr("Defina as permissões para o novo grupo", "Define permissions for the new group")}
+                {editingGroup 
+                  ? tr("Edite as permissões do grupo", "Edit group permissions")
+                  : tr("Defina as permissões para o novo grupo", "Define permissions for the new group")
+                }
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>{tr("Nome", "Name")}</Label>
-                  <Input placeholder={tr("Ex: Grupo Admin", "Ex: Admin Group")} />
+                  <Label>{tr("Nome", "Name")} *</Label>
+                  <Input 
+                    placeholder={tr("Ex: Grupo Admin", "Ex: Admin Group")}
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>{tr("Nível", "Level")}</Label>
-                  <select className="w-full h-10 px-3 rounded-md border border-input bg-background">
+                  <select 
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background"
+                    value={formLevel}
+                    onChange={(e) => setFormLevel(Number(e.target.value))}
+                  >
                     <option value="1">1 - {tr("Super Admin", "Super Admin")}</option>
                     <option value="2">2 - {tr("Admin", "Admin")}</option>
                     <option value="3">3 - {tr("Gestor", "Manager")}</option>
@@ -235,12 +339,16 @@ export default function AccessGroups() {
               </div>
               <div className="space-y-2">
                 <Label>{tr("Descrição", "Description")}</Label>
-                <Input placeholder={tr("Opcional...", "Optional...")} />
+                <Input 
+                  placeholder={tr("Opcional...", "Optional...")}
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                />
               </div>
               
               <div className="space-y-2">
                 <Label>{tr("Permissões", "Permissions")}</Label>
-                <div className="border rounded-lg p-4 space-y-4">
+                <div className="border rounded-lg p-4 space-y-4 max-h-96 overflow-y-auto">
                   {Object.entries(permissionFeatures).map(([sectionKey, section]) => (
                     <div key={sectionKey} className="space-y-2">
                       <button
@@ -257,17 +365,24 @@ export default function AccessGroups() {
                       </button>
                       {expandedSections.includes(sectionKey) && (
                         <div className="ml-6 space-y-2">
-                          {Object.entries(section.children).map(([featureKey, feature]) => (
-                            <div key={featureKey} className="flex items-center gap-2">
-                              <Checkbox id={`${sectionKey}.${featureKey}`} />
-                              <label
-                                htmlFor={`${sectionKey}.${featureKey}`}
-                                className="text-sm text-muted-foreground cursor-pointer"
-                              >
-                                {tr(feature.label.pt, feature.label.en)}
-                              </label>
-                            </div>
-                          ))}
+                          {Object.entries(section.children).map(([featureKey, feature]) => {
+                            const permKey = `${sectionKey}.${featureKey}`;
+                            return (
+                              <div key={featureKey} className="flex items-center gap-2">
+                                <Checkbox 
+                                  id={`form-${permKey}`}
+                                  checked={formPermissions[permKey] || false}
+                                  onCheckedChange={() => togglePermission(permKey)}
+                                />
+                                <label
+                                  htmlFor={`form-${permKey}`}
+                                  className="text-sm text-muted-foreground cursor-pointer"
+                                >
+                                  {tr(feature.label.pt, feature.label.en)}
+                                </label>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -276,11 +391,11 @@ export default function AccessGroups() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+              <Button variant="outline" onClick={closeDialog}>
                 {tr("Cancelar", "Cancel")}
               </Button>
-              <Button onClick={() => setIsCreateOpen(false)}>
-                {tr("Criar", "Create")}
+              <Button onClick={saveGroup} disabled={!formName.trim()}>
+                {editingGroup ? tr("Guardar", "Save") : tr("Criar", "Create")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -294,7 +409,7 @@ export default function AccessGroups() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{tr("Total Grupos", "Total Groups")}</p>
-                <p className="text-2xl font-bold">{mockGroups.length}</p>
+                <p className="text-2xl font-bold">{groups.length}</p>
               </div>
               <Shield className="w-8 h-8 text-primary opacity-80" />
             </div>
@@ -306,7 +421,7 @@ export default function AccessGroups() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{tr("Utilizadores", "Users")}</p>
-                <p className="text-2xl font-bold">{mockGroups.reduce((acc, g) => acc + g.usersCount, 0)}</p>
+                <p className="text-2xl font-bold">{groups.reduce((acc, g) => acc + g.usersCount, 0)}</p>
               </div>
               <Users className="w-8 h-8 text-blue-500 opacity-80" />
             </div>
@@ -343,7 +458,7 @@ export default function AccessGroups() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {mockGroups.map((group) => (
+            {groups.map((group) => (
               <Card key={group.id} className="p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
@@ -365,11 +480,16 @@ export default function AccessGroups() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setEditingGroup(group)}>
+                    <Button variant="outline" size="sm" onClick={() => openEditDialog(group)}>
                       <Edit className="w-4 h-4 mr-1" />
                       {tr("Editar", "Edit")}
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-red-500">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => deleteGroup(group.id)}
+                    >
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -422,7 +542,7 @@ export default function AccessGroups() {
             <TableHeader>
               <TableRow>
                 <TableHead className="sticky left-0 bg-background">{tr("Funcionalidade", "Feature")}</TableHead>
-                {mockGroups.map((group) => (
+                {groups.map((group) => (
                   <TableHead key={group.id} className="text-center min-w-[80px]">
                     <div className={`inline-flex w-6 h-6 rounded items-center justify-center text-white text-xs font-bold ${getLevelColor(group.level)}`}>
                       {group.level}
@@ -435,7 +555,7 @@ export default function AccessGroups() {
               {Object.entries(permissionFeatures).map(([sectionKey, section]) => (
                 <>
                   <TableRow key={sectionKey} className="bg-muted/50">
-                    <TableCell colSpan={mockGroups.length + 1} className="font-medium">
+                    <TableCell colSpan={groups.length + 1} className="font-medium">
                       {tr(section.label.pt, section.label.en)}
                     </TableCell>
                   </TableRow>
@@ -444,7 +564,7 @@ export default function AccessGroups() {
                       <TableCell className="pl-8 sticky left-0 bg-background">
                         {tr(feature.label.pt, feature.label.en)}
                       </TableCell>
-                      {mockGroups.map((group) => {
+                      {groups.map((group) => {
                         const permKey = `${sectionKey}.${featureKey}`;
                         const hasPermission = group.permissions[permKey as keyof typeof group.permissions];
                         return (
