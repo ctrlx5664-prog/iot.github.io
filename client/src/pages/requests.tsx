@@ -287,13 +287,15 @@ export default function Requests() {
             {tr("Gestão de pedidos de manutenção e suporte", "Management of maintenance and support requests")}
           </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={closeDialog}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreateDialog}>
-              <Plus className="w-4 h-4 mr-2" />
-              {tr("Novo Pedido", "New Request")}
-            </Button>
-          </DialogTrigger>
+        <div>
+          <Button onClick={openCreateDialog}>
+            <Plus className="w-4 h-4 mr-2" />
+            {tr("Novo Pedido", "New Request")}
+          </Button>
+        </div>
+        <Dialog open={isCreateOpen} onOpenChange={(open) => {
+          if (!open) closeDialog();
+        }}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>

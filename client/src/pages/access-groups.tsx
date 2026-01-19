@@ -292,13 +292,15 @@ export default function AccessGroups() {
             {tr("Gestão de permissões e níveis de acesso", "Management of permissions and access levels")}
           </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={closeDialog}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreateDialog}>
-              <Plus className="w-4 h-4 mr-2" />
-              {tr("Novo Grupo", "New Group")}
-            </Button>
-          </DialogTrigger>
+        <div>
+          <Button onClick={openCreateDialog}>
+            <Plus className="w-4 h-4 mr-2" />
+            {tr("Novo Grupo", "New Group")}
+          </Button>
+        </div>
+        <Dialog open={isCreateOpen} onOpenChange={(open) => {
+          if (!open) closeDialog();
+        }}>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>

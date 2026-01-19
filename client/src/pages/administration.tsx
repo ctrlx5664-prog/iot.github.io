@@ -101,6 +101,7 @@ export default function Administration() {
 
   // Board CRUD functions
   const openCreateBoard = () => {
+    console.log("Opening create board dialog");
     setBoardName("");
     setBoardDescription("");
     setBoardMembers(0);
@@ -119,7 +120,11 @@ export default function Administration() {
   };
 
   const saveBoard = () => {
-    if (!boardName.trim()) return;
+    console.log("Saving board:", { boardName, boardMembers, boardStatus, editingBoard });
+    if (!boardName.trim()) {
+      console.log("Board name is empty, not saving");
+      return;
+    }
 
     const newBoard: Board = {
       id: editingBoard?.id || String(Date.now()),
@@ -129,10 +134,22 @@ export default function Administration() {
       lastMeeting: editingBoard?.lastMeeting || new Date().toISOString().split('T')[0],
     };
 
+    console.log("New board object:", newBoard);
+
     if (editingBoard) {
-      setBoards((prev) => prev.map((b) => (b.id === editingBoard.id ? newBoard : b)));
+      console.log("Updating existing board");
+      setBoards((prev) => {
+        const updated = prev.map((b) => (b.id === editingBoard.id ? newBoard : b));
+        console.log("Updated boards:", updated);
+        return updated;
+      });
     } else {
-      setBoards((prev) => [...prev, newBoard]);
+      console.log("Adding new board");
+      setBoards((prev) => {
+        const updated = [...prev, newBoard];
+        console.log("Updated boards:", updated);
+        return updated;
+      });
     }
 
     setIsCreateBoardOpen(false);
@@ -152,6 +169,7 @@ export default function Administration() {
 
   // Policy CRUD functions
   const openCreatePolicy = () => {
+    console.log("Opening create policy dialog");
     setPolicyTitle("");
     setPolicyVersion("1.0");
     setPolicyStatus("active");
@@ -168,7 +186,11 @@ export default function Administration() {
   };
 
   const savePolicy = () => {
-    if (!policyTitle.trim() || !policyVersion.trim()) return;
+    console.log("Saving policy:", { policyTitle, policyVersion, policyStatus, editingPolicy });
+    if (!policyTitle.trim() || !policyVersion.trim()) {
+      console.log("Policy title or version is empty, not saving");
+      return;
+    }
 
     const newPolicy: Policy = {
       id: editingPolicy?.id || String(Date.now()),
@@ -178,10 +200,22 @@ export default function Administration() {
       status: policyStatus,
     };
 
+    console.log("New policy object:", newPolicy);
+
     if (editingPolicy) {
-      setPolicies((prev) => prev.map((p) => (p.id === editingPolicy.id ? newPolicy : p)));
+      console.log("Updating existing policy");
+      setPolicies((prev) => {
+        const updated = prev.map((p) => (p.id === editingPolicy.id ? newPolicy : p));
+        console.log("Updated policies:", updated);
+        return updated;
+      });
     } else {
-      setPolicies((prev) => [...prev, newPolicy]);
+      console.log("Adding new policy");
+      setPolicies((prev) => {
+        const updated = [...prev, newPolicy];
+        console.log("Updated policies:", updated);
+        return updated;
+      });
     }
 
     setIsCreatePolicyOpen(false);
@@ -211,13 +245,17 @@ export default function Administration() {
             {tr("Gestão de diretorias e políticas organizacionais", "Management of boards and organizational policies")}
           </p>
         </div>
-        <Dialog open={isCreateBoardOpen} onOpenChange={closeBoardDialog}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreateBoard}>
-              <Plus className="w-4 h-4 mr-2" />
-              {tr("Nova Diretoria", "New Board")}
-            </Button>
-          </DialogTrigger>
+        <Button onClick={(e) => {
+          e.preventDefault();
+          openCreateBoard();
+        }}>
+          <Plus className="w-4 h-4 mr-2" />
+          {tr("Nova Diretoria", "New Board")}
+        </Button>
+        <Dialog open={isCreateBoardOpen} onOpenChange={(open) => {
+          console.log("Dialog open changed:", open);
+          if (!open) closeBoardDialog();
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
@@ -246,8 +284,11 @@ export default function Administration() {
                   <Input
                     type="number"
                     min="0"
-                    value={boardMembers}
-                    onChange={(e) => setBoardMembers(parseInt(e.target.value) || 0)}
+                    value={boardMembers === 0 ? "" : boardMembers}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setBoardMembers(val === "" ? 0 : parseInt(val) || 0);
+                    }}
                   />
                 </div>
                 <div className="space-y-2">
@@ -273,10 +314,17 @@ export default function Administration() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={closeBoardDialog}>
+              <Button variant="outline" onClick={(e) => {
+                e.preventDefault();
+                closeBoardDialog();
+              }}>
                 {tr("Cancelar", "Cancel")}
               </Button>
-              <Button onClick={saveBoard} disabled={!boardName.trim()}>
+              <Button onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                saveBoard();
+              }} disabled={!boardName.trim()}>
                 {editingBoard ? tr("Guardar", "Save") : tr("Criar", "Create")}
               </Button>
             </DialogFooter>
@@ -411,13 +459,16 @@ export default function Administration() {
                 {tr("Documentos organizacionais e políticas de acesso", "Organizational documents and access policies")}
               </CardDescription>
             </div>
-            <Dialog open={isCreatePolicyOpen} onOpenChange={closePolicyDialog}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" onClick={openCreatePolicy}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  {tr("Nova Política", "New Policy")}
-                </Button>
-              </DialogTrigger>
+            <Button variant="outline" size="sm" onClick={(e) => {
+              e.preventDefault();
+              openCreatePolicy();
+            }}>
+              <Plus className="w-4 h-4 mr-2" />
+              {tr("Nova Política", "New Policy")}
+            </Button>
+            <Dialog open={isCreatePolicyOpen} onOpenChange={(open) => {
+              if (!open) closePolicyDialog();
+            }}>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>
@@ -465,12 +516,19 @@ export default function Administration() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={closePolicyDialog}>
-                    {tr("Cancelar", "Cancel")}
-                  </Button>
-                  <Button onClick={savePolicy} disabled={!policyTitle.trim() || !policyVersion.trim()}>
-                    {editingPolicy ? tr("Guardar", "Save") : tr("Criar", "Create")}
-                  </Button>
+              <Button variant="outline" onClick={(e) => {
+                e.preventDefault();
+                closePolicyDialog();
+              }}>
+                {tr("Cancelar", "Cancel")}
+              </Button>
+              <Button onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                savePolicy();
+              }} disabled={!policyTitle.trim() || !policyVersion.trim()}>
+                {editingPolicy ? tr("Guardar", "Save") : tr("Criar", "Create")}
+              </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
