@@ -62,12 +62,29 @@ const mockPolicies = [
   { id: "3", title: "Security Policy", version: "3.0", updatedAt: "2026-01-05", status: "review" },
 ];
 
+type Board = typeof mockBoards[0];
+type Policy = typeof mockPolicies[0];
+
 export default function Administration() {
   const { language } = useTranslation();
   const tr = (pt: string, en: string) => (language === "pt" ? pt : en);
+  
+  // State for Boards
+  const [boards, setBoards] = useState<Board[]>(mockBoards);
   const [isCreateBoardOpen, setIsCreateBoardOpen] = useState(false);
-  const [newBoardName, setNewBoardName] = useState("");
-  const [newBoardDescription, setNewBoardDescription] = useState("");
+  const [editingBoard, setEditingBoard] = useState<Board | null>(null);
+  const [boardName, setBoardName] = useState("");
+  const [boardDescription, setBoardDescription] = useState("");
+  const [boardMembers, setBoardMembers] = useState(0);
+  const [boardStatus, setBoardStatus] = useState<"active" | "inactive">("active");
+  
+  // State for Policies
+  const [policies, setPolicies] = useState<Policy[]>(mockPolicies);
+  const [isCreatePolicyOpen, setIsCreatePolicyOpen] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null);
+  const [policyTitle, setPolicyTitle] = useState("");
+  const [policyVersion, setPolicyVersion] = useState("1.0");
+  const [policyStatus, setPolicyStatus] = useState<"active" | "review">("active");
 
   const token = getToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -82,6 +99,106 @@ export default function Administration() {
     },
   });
 
+  // Board CRUD functions
+  const openCreateBoard = () => {
+    setBoardName("");
+    setBoardDescription("");
+    setBoardMembers(0);
+    setBoardStatus("active");
+    setEditingBoard(null);
+    setIsCreateBoardOpen(true);
+  };
+
+  const openEditBoard = (board: Board) => {
+    setBoardName(board.name);
+    setBoardDescription("");
+    setBoardMembers(board.members);
+    setBoardStatus(board.status as "active" | "inactive");
+    setEditingBoard(board);
+    setIsCreateBoardOpen(true);
+  };
+
+  const saveBoard = () => {
+    if (!boardName.trim()) return;
+
+    const newBoard: Board = {
+      id: editingBoard?.id || String(Date.now()),
+      name: boardName.trim(),
+      members: boardMembers,
+      status: boardStatus,
+      lastMeeting: editingBoard?.lastMeeting || new Date().toISOString().split('T')[0],
+    };
+
+    if (editingBoard) {
+      setBoards((prev) => prev.map((b) => (b.id === editingBoard.id ? newBoard : b)));
+    } else {
+      setBoards((prev) => [...prev, newBoard]);
+    }
+
+    setIsCreateBoardOpen(false);
+    setEditingBoard(null);
+  };
+
+  const deleteBoard = (id: string) => {
+    if (confirm(tr("Tem certeza que deseja eliminar esta diretoria?", "Are you sure you want to delete this board?"))) {
+      setBoards((prev) => prev.filter((b) => b.id !== id));
+    }
+  };
+
+  const closeBoardDialog = () => {
+    setIsCreateBoardOpen(false);
+    setEditingBoard(null);
+  };
+
+  // Policy CRUD functions
+  const openCreatePolicy = () => {
+    setPolicyTitle("");
+    setPolicyVersion("1.0");
+    setPolicyStatus("active");
+    setEditingPolicy(null);
+    setIsCreatePolicyOpen(true);
+  };
+
+  const openEditPolicy = (policy: Policy) => {
+    setPolicyTitle(policy.title);
+    setPolicyVersion(policy.version);
+    setPolicyStatus(policy.status as "active" | "review");
+    setEditingPolicy(policy);
+    setIsCreatePolicyOpen(true);
+  };
+
+  const savePolicy = () => {
+    if (!policyTitle.trim() || !policyVersion.trim()) return;
+
+    const newPolicy: Policy = {
+      id: editingPolicy?.id || String(Date.now()),
+      title: policyTitle.trim(),
+      version: policyVersion.trim(),
+      updatedAt: new Date().toISOString().split('T')[0],
+      status: policyStatus,
+    };
+
+    if (editingPolicy) {
+      setPolicies((prev) => prev.map((p) => (p.id === editingPolicy.id ? newPolicy : p)));
+    } else {
+      setPolicies((prev) => [...prev, newPolicy]);
+    }
+
+    setIsCreatePolicyOpen(false);
+    setEditingPolicy(null);
+  };
+
+  const deletePolicy = (id: string) => {
+    if (confirm(tr("Tem certeza que deseja eliminar esta política?", "Are you sure you want to delete this policy?"))) {
+      setPolicies((prev) => prev.filter((p) => p.id !== id));
+    }
+  };
+
+  const closePolicyDialog = () => {
+    setIsCreatePolicyOpen(false);
+    setEditingPolicy(null);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -94,44 +211,73 @@ export default function Administration() {
             {tr("Gestão de diretorias e políticas organizacionais", "Management of boards and organizational policies")}
           </p>
         </div>
-        <Dialog open={isCreateBoardOpen} onOpenChange={setIsCreateBoardOpen}>
+        <Dialog open={isCreateBoardOpen} onOpenChange={closeBoardDialog}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={openCreateBoard}>
               <Plus className="w-4 h-4 mr-2" />
               {tr("Nova Diretoria", "New Board")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{tr("Criar Nova Diretoria", "Create New Board")}</DialogTitle>
+              <DialogTitle>
+                {editingBoard ? tr("Editar Diretoria", "Edit Board") : tr("Criar Nova Diretoria", "Create New Board")}
+              </DialogTitle>
               <DialogDescription>
-                {tr("Adicione uma nova diretoria à organização", "Add a new board to the organization")}
+                {editingBoard
+                  ? tr("Edite os detalhes da diretoria", "Edit board details")
+                  : tr("Adicione uma nova diretoria à organização", "Add a new board to the organization")
+                }
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>{tr("Nome", "Name")}</Label>
+                <Label>{tr("Nome", "Name")} *</Label>
                 <Input
-                  value={newBoardName}
-                  onChange={(e) => setNewBoardName(e.target.value)}
+                  value={boardName}
+                  onChange={(e) => setBoardName(e.target.value)}
                   placeholder={tr("Ex: Conselho Fiscal", "Ex: Fiscal Council")}
+                  required
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{tr("Membros", "Members")}</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={boardMembers}
+                    onChange={(e) => setBoardMembers(parseInt(e.target.value) || 0)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{tr("Estado", "Status")}</Label>
+                  <Select value={boardStatus} onValueChange={(v: "active" | "inactive") => setBoardStatus(v)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">{tr("Ativa", "Active")}</SelectItem>
+                      <SelectItem value="inactive">{tr("Inativa", "Inactive")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>{tr("Descrição", "Description")}</Label>
                 <Textarea
-                  value={newBoardDescription}
-                  onChange={(e) => setNewBoardDescription(e.target.value)}
+                  value={boardDescription}
+                  onChange={(e) => setBoardDescription(e.target.value)}
                   placeholder={tr("Descreva as responsabilidades...", "Describe the responsibilities...")}
                 />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateBoardOpen(false)}>
+              <Button variant="outline" onClick={closeBoardDialog}>
                 {tr("Cancelar", "Cancel")}
               </Button>
-              <Button onClick={() => setIsCreateBoardOpen(false)}>
-                {tr("Criar", "Create")}
+              <Button onClick={saveBoard} disabled={!boardName.trim()}>
+                {editingBoard ? tr("Guardar", "Save") : tr("Criar", "Create")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -146,7 +292,7 @@ export default function Administration() {
               <div>
                 <p className="text-sm text-muted-foreground">{tr("Diretorias Ativas", "Active Boards")}</p>
                 <p className="text-2xl font-bold">
-                  {mockBoards.filter(b => b.status === "active").length}
+                  {boards.filter(b => b.status === "active").length}
                 </p>
               </div>
               <Building2 className="w-8 h-8 text-primary opacity-80" />
@@ -173,7 +319,7 @@ export default function Administration() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{tr("Políticas", "Policies")}</p>
-                <p className="text-2xl font-bold">{mockPolicies.length}</p>
+                <p className="text-2xl font-bold">{policies.length}</p>
               </div>
               <FileText className="w-8 h-8 text-green-500 opacity-80" />
             </div>
@@ -218,7 +364,7 @@ export default function Administration() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockBoards.map((board) => (
+              {boards.map((board) => (
                 <TableRow key={board.id}>
                   <TableCell className="font-medium">{board.name}</TableCell>
                   <TableCell>
@@ -265,10 +411,69 @@ export default function Administration() {
                 {tr("Documentos organizacionais e políticas de acesso", "Organizational documents and access policies")}
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm">
-              <Plus className="w-4 h-4 mr-2" />
-              {tr("Nova Política", "New Policy")}
-            </Button>
+            <Dialog open={isCreatePolicyOpen} onOpenChange={closePolicyDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" onClick={openCreatePolicy}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  {tr("Nova Política", "New Policy")}
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingPolicy ? tr("Editar Política", "Edit Policy") : tr("Criar Nova Política", "Create New Policy")}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {editingPolicy
+                      ? tr("Edite os detalhes da política", "Edit policy details")
+                      : tr("Adicione uma nova política organizacional", "Add a new organizational policy")
+                    }
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>{tr("Título", "Title")} *</Label>
+                    <Input
+                      value={policyTitle}
+                      onChange={(e) => setPolicyTitle(e.target.value)}
+                      placeholder={tr("Ex: Política de Acesso", "Ex: Access Policy")}
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>{tr("Versão", "Version")} *</Label>
+                      <Input
+                        value={policyVersion}
+                        onChange={(e) => setPolicyVersion(e.target.value)}
+                        placeholder="1.0"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{tr("Estado", "Status")}</Label>
+                      <Select value={policyStatus} onValueChange={(v: "active" | "review") => setPolicyStatus(v)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">{tr("Ativa", "Active")}</SelectItem>
+                          <SelectItem value="review">{tr("Em Revisão", "In Review")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={closePolicyDialog}>
+                    {tr("Cancelar", "Cancel")}
+                  </Button>
+                  <Button onClick={savePolicy} disabled={!policyTitle.trim() || !policyVersion.trim()}>
+                    {editingPolicy ? tr("Guardar", "Save") : tr("Criar", "Create")}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </CardHeader>
         <CardContent>
@@ -297,8 +502,16 @@ export default function Administration() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon">
+                      <Button variant="ghost" size="icon" onClick={() => openEditPolicy(policy)}>
                         <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => deletePolicy(policy.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </TableCell>
