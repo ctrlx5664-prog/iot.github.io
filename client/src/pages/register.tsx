@@ -211,8 +211,11 @@ export default function Register() {
                 type="email"
                 value={email}
                 onChange={(e: any) => setEmail(e.target.value)}
-                placeholder={tr("email@exemplo.com", "email@example.com")}
+                placeholder={tr("email@exemplo.com (opcional)", "email@example.com (optional)")}
               />
+              <p className="text-xs text-muted-foreground">
+                {tr("Se não fornecer um email, não precisará de verificação por email para iniciar sessão.", "If you don't provide an email, you won't need email verification to log in.")}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{tr("Palavra-passe", "Password")}</label>

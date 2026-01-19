@@ -263,19 +263,19 @@ export async function registerRoutes(
       ? user.email
       : null;
 
+    // If user has no email, skip 2FA and login directly (email is optional)
+    if (!userEmail) {
+      const token = signJwt({ sub: user.username });
+      return res.json({ token, user: { username: user.username, email: user.email } });
+    }
+
     // Check if email is verified (only if user has email)
-    if (userEmail && !user.emailVerified) {
+    if (!user.emailVerified) {
       return res.status(403).json({ 
         error: "Email não verificado",
         requiresEmailVerification: true,
         userId: user.id 
       });
-    }
-
-    // If user has no email, skip 2FA and login directly
-    if (!userEmail) {
-      const token = signJwt({ sub: user.username });
-      return res.json({ token, user: { username: user.username, email: user.email } });
     }
 
     // Send 2FA code
