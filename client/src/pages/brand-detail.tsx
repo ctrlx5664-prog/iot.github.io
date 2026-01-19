@@ -45,12 +45,12 @@ import type { Company, Location, Light, Tv } from "@shared/schema";
 
 // Mock brand data (in real app, fetch from API)
 const mockBrands: { [key: string]: { id: string; name: string; category: string; website: string; logo: string | null; status: string } } = {
-  "1": { id: "1", name: "Philips Hue", category: "lighting", website: "https://www.philips-hue.com", logo: null, status: "active" },
-  "2": { id: "2", name: "LIFX", category: "lighting", website: "https://www.lifx.com", logo: null, status: "active" },
-  "3": { id: "3", name: "Samsung", category: "displays", website: "https://www.samsung.com", logo: null, status: "active" },
-  "4": { id: "4", name: "LG", category: "displays", website: "https://www.lg.com", logo: null, status: "active" },
-  "5": { id: "5", name: "Nanoleaf", category: "lighting", website: "https://nanoleaf.me", logo: null, status: "inactive" },
-  "6": { id: "6", name: "Yeelight", category: "lighting", website: "https://www.yeelight.com", logo: null, status: "active" },
+  "1": { id: "1", name: "Givenchy", category: "lighting", website: "https://www.givenchy.com", logo: null, status: "active" },
+  "2": { id: "2", name: "Christian Dior", category: "lighting", website: "https://www.christiandior.com", logo: null, status: "active" },
+  "3": { id: "3", name: "Moët Hennessy", category: "displays", website: "https://www.moethennessy.com", logo: null, status: "active" },
+  "4": { id: "4", name: "Guerlain", category: "displays", website: "https://www.guerlain.com", logo: null, status: "active" },
+  "5": { id: "5", name: "Louis Vuitton", category: "lighting", website: "https://www.louisvuitton.me", logo: null, status: "inactive" },
+  "6": { id: "6", name: "Rimowa", category: "lighting", website: "https://www.rimowa.com", logo: null, status: "active" },
 };
 
 export default function BrandDetail() {

@@ -206,7 +206,24 @@ export function AppSidebar() {
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild isActive={location === "/access-groups"}>
+                        <Link href="/access-groups">
+                          <Shield className="w-4 h-4" />
+                          <span>{tr("Grupos de Acesso", "Access Groups")}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild isActive={location === "/organizations"}>
+                        <Link href="/organizations">
+                          <Settings className="w-4 h-4" />
+                          <span>{tr("Organização", "Organization")}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location === "/requests"}>
                       <Link href="/requests">
