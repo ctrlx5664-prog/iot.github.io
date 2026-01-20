@@ -286,8 +286,8 @@ export default function LocationDetail() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className={`relative overflow-auto bg-background ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'min-h-[1200px]'}`}>
+            <CardContent className="p-0 overflow-hidden">
+              <div className={`relative overflow-y-auto overflow-x-hidden bg-background ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'min-h-[1200px]'}`}>
                 {/* Mobile Portrait Warning */}
                 {isMobilePortrait && (
                   <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-background">

@@ -101,7 +101,7 @@ export default function HomeAssistant() {
         </div>
       )}
 
-      <div className="flex-1 relative overflow-auto bg-background min-h-[1200px]">
+      <div className="flex-1 relative overflow-y-auto overflow-x-hidden bg-background min-h-[1200px]">
         {/* Mobile Portrait Warning */}
         {isMobilePortrait && (
           <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-background">
