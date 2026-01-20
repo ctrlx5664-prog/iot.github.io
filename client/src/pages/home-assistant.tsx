@@ -101,7 +101,7 @@ export default function HomeAssistant() {
         </div>
       )}
 
-      <div className="flex-1 relative overflow-hidden bg-background">
+      <div className="flex-1 relative overflow-auto bg-background min-h-[1200px]">
         {/* Mobile Portrait Warning */}
         {isMobilePortrait && (
           <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-background">
@@ -224,7 +224,7 @@ export default function HomeAssistant() {
         <iframe
           ref={iframeRef}
           src={dashboardUrl}
-          className="w-full h-full border-0"
+          className="w-full border-0"
           title="Dashboard de Controlo"
           onError={() => {
             setError("Falha ao carregar o dashboard");
@@ -232,12 +232,15 @@ export default function HomeAssistant() {
           }}
           onLoad={handleIframeLoad}
           sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+          scrolling="no"
           style={{
             width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
-            height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
+            height: `calc(100vh - 4rem + ${HA_TOP_CHROME_PX}px)`,
+            minHeight: '1500px',
             transform: `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`,
             opacity: isLoading || isMobilePortrait ? 0 : 1,
             transition: "opacity 0.3s ease-in-out",
+            overflow: 'hidden',
           }}
         />
       </div>

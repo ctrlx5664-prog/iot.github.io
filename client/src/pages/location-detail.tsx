@@ -287,7 +287,7 @@ export default function LocationDetail() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className={`relative overflow-hidden bg-background ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-[600px]'}`}>
+              <div className={`relative overflow-auto bg-background ${isFullscreen ? 'h-[calc(100vh-80px)]' : 'min-h-[1200px]'}`}>
                 {/* Mobile Portrait Warning */}
                 {isMobilePortrait && (
                   <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-background">
@@ -384,16 +384,19 @@ export default function LocationDetail() {
                 <iframe
                   key={dashboardKey}
                   src={dashboardUrl}
-                  className="w-full h-full border-0"
+                  className="w-full border-0"
                   title="Dashboard de Controlo"
                   onLoad={handleDashboardLoad}
                   sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+                  scrolling="no"
                   style={{
                     width: `calc(100% + ${HA_LEFT_CHROME_PX}px)`,
-                    height: `calc(100% + ${HA_TOP_CHROME_PX}px)`,
+                    height: isFullscreen ? `calc(100vh - 80px + ${HA_TOP_CHROME_PX}px)` : '1500px',
+                    minHeight: '1500px',
                     transform: `translate(-${HA_LEFT_CHROME_PX}px, -${HA_TOP_CHROME_PX}px)`,
                     opacity: isDashboardLoading || isMobilePortrait ? 0 : 1,
                     transition: "opacity 0.3s ease-in-out",
+                    overflow: 'hidden',
                   }}
                 />
               </div>
