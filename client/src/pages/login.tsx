@@ -239,16 +239,6 @@ export default function Login() {
                 {tr("Esqueceu a palavra-passe?", "Forgot your password?")}
               </button>
             </div>
-            <p className="text-sm text-center text-muted-foreground">
-              {tr("Ainda não tem conta?", "Don't have an account?")}{" "}
-              <button
-                type="button"
-                className="text-primary underline hover:text-primary/80"
-                onClick={() => navigate("/register")}
-              >
-                {tr("Registe-se aqui", "Sign up here")}
-              </button>
-            </p>
           </form>
         </CardContent>
       </Card>
