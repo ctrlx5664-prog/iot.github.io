@@ -354,7 +354,7 @@ export async function registerRoutes(
     const passwordHash = hashPassword(password);
     const [newUser] = await db.insert(users).values({ 
       username, 
-      email: normalizedEmail,
+      email: normalizedEmail || null,
       passwordHash,
       emailVerified: normalizedEmail ? false : true 
     }).returning();
@@ -1018,9 +1018,10 @@ export async function registerRoutes(
       const passwordHash = hashPassword(password);
       
       // Create user (already verified since admin is creating)
+      // Explicitly set email to null if not provided (not undefined)
       const [newUser] = await db.insert(users).values({
         username,
-        email: normalizedEmail,
+        email: normalizedEmail || null,
         passwordHash,
         emailVerified: true, // Admin-created users are auto-verified
       }).returning();
