@@ -71,9 +71,6 @@ export default function Landing() {
                   <ChevronRight className="w-5 h-5 ml-2" />
                 </Link>
               </Button>
-              <Button size="lg" variant="outline" asChild className="px-8">
-                <Link href="/register">{tr("Criar Conta Gratuita", "Create Free Account")}</Link>
-              </Button>
             </div>
           </div>
         </div>
@@ -171,12 +168,6 @@ export default function Landing() {
             )}
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button size="lg" asChild className="px-8">
-              <Link href="/register">
-                {tr("Começar Agora", "Get Started")}
-                <ChevronRight className="w-5 h-5 ml-2" />
-              </Link>
-            </Button>
             <Button size="lg" variant="ghost" asChild>
               <a href="mailto:contact@ctrlx.pt">{tr("Fale com a nossa equipa", "Talk to Our Team")}</a>
             </Button>
